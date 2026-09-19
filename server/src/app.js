@@ -15,8 +15,12 @@ import medicationRoutes from './routes/medication.routes.js';
 
 import { startMediaRetentionCleanup } from './services/media-retention.service.js';
 import { databaseHealth } from './services/db.service.js';
+import mediaRoutes from './routes/media.routes.js';
 
+app.use('/api/media', mediaRoutes);
 const app = express();
+
+app.use('/api/media', mediaRoutes);
 
 const allowedOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
