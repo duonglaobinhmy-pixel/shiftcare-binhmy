@@ -12,6 +12,28 @@ const cfg = () => ({
   allowMock: String(process.env.ALLOW_BCARE_MOCK || 'true').toLowerCase() === 'true'
 });
 
+
+function normalizeResident(x={}) {
+  const id = x.id ?? x.elderlyId ?? x.elderlyID ?? x.elderly_id ?? x.Id ?? x.ID;
+  const branchId = x.branchId ?? x.branchID ?? x.branch_id ?? x.branch?.id ?? x.branch?.branchId ?? '';
+  const areaId = x.areaId ?? x.areaID ?? x.area_id ?? x.area?.id ?? x.zoneId ?? '';
+  const roomId = x.roomId ?? x.roomID ?? x.room_id ?? x.room?.id ?? '';
+  return {
+    ...x,
+    id: id == null ? '' : String(id),
+    code: String(x.code ?? x.elderlyCode ?? x.patientCode ?? x.codeElderly ?? ''),
+    fullName: String(x.fullName ?? x.name ?? x.elderlyName ?? x.patientName ?? ''),
+    branchId: branchId == null ? '' : String(branchId),
+    branchName: String(x.branchName ?? x.branch?.name ?? ''),
+    areaId: areaId == null || areaId === '' ? null : String(areaId),
+    areaName: String(x.areaName ?? x.area?.name ?? x.zoneName ?? ''),
+    roomId: roomId == null || roomId === '' ? null : String(roomId),
+    roomName: String(x.roomName ?? x.room?.name ?? ''),
+    bedName: String(x.bedName ?? x.bed?.name ?? x.bedCode ?? ''),
+    image: String(x.image ?? x.avatar ?? x.imageUrl ?? ''),
+  };
+}
+
 function findToken(data) {
   return data?.accessToken || data?.access_token || data?.token || data?.jwt || data?.jwtToken ||
     data?.data?.accessToken || data?.data?.access_token || data?.data?.token ||
@@ -85,7 +107,7 @@ export async function getResidents(payload = {}) {
     if (!out.res.ok) throw new Error(`BCARE elderly/getpaging HTTP ${out.res.status}: ${String(out.text).slice(0, 400)}`);
     const data = out.data?.data || out.data;
     if (!data || !Array.isArray(data.items)) throw new Error('BCARE response không có items[]');
-    data.items = (data.items || []).map(x => { const b = branchInfo(x.branchId); return b ? { ...x, branchName: b.name, branchCode: b.code } : x; });
+    data.items = (data.items || []).map(normalizeResident).filter(x=>x.id).map(x => { const b = branchInfo(x.branchId); return b ? { ...x, branchName: x.branchName || b.name, branchCode: b.code } : x; });
     await cacheBcareResidents(data.items).catch(err => console.warn('[BCARE CACHE]', err.message));
     await logBcareSync({operation:'ELDERLY_GETPAGING',endpoint:c.elderly,branchId:body.branchId||null,success:true,itemCount:data.items.length,durationMs:Date.now()-startedAt,meta:{pageIndex:body.pageIndex,pageSize:body.pageSize}}).catch(()=>{});
     return data;

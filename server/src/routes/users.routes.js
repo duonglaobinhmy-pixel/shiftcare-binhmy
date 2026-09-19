@@ -97,7 +97,7 @@ router.get('/staff', allowPermission('USER.VIEW'), async (req, res) => {
   const branchId = req.user.role === 'ADMIN' ? String(req.query.branchId || '') : String(req.user.branchId || '');
   if (!branchId) return res.status(400).json({ success: false, message: 'Vui lòng chọn cơ sở.' });
   const store = await getStore();
-  const rows = (store.staffMembers || []).filter(x => x.branchId === branchId && !x.deleted).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'vi'));
+  const rows = (store.staffMembers || []).filter(x => String(x.branchId) === String(branchId) && !x.deleted).map(x=>({...x,active:x.active!==false})).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'vi'));
   res.json({ success: true, data: rows });
 });
 
@@ -140,7 +140,7 @@ router.patch('/staff/:id', allowPermission('USER.UPDATE'), async (req, res) => {
   if (!found || !staffScope(req.user, found)) return res.status(404).json({ success: false, message: 'Không tìm thấy nhân viên trong cơ sở.' });
   let payload; try { payload = validStaffPayload({ employeeCode: body.employeeCode ?? found.employeeCode, fullName: body.fullName ?? found.fullName }); } catch (e) { return res.status(400).json({ success: false, message: e.message }); }
   if ((store.staffMembers || []).some(x => x.id !== found.id && !x.deleted && x.branchId === found.branchId && String(x.employeeCode).toLowerCase() === payload.employeeCode.toLowerCase())) return res.status(409).json({ success: false, message: 'Mã nhân viên đã tồn tại trong danh sách cơ sở.' });
-  await updateStore(next => { const row = next.staffMembers.find(x => x.id === found.id); Object.assign(row, payload, { updatedBy: req.user.sub, updatedAt: new Date().toISOString() }); });
+  await updateStore(next => { const row = next.staffMembers.find(x => x.id === found.id); Object.assign(row, payload, { active: body.active===undefined ? row.active!==false : body.active!==false, updatedBy: req.user.sub, updatedAt: new Date().toISOString() }); });
   await audit(req.user, 'STAFF_DIRECTORY_UPDATE', 'staff_member', found.id, payload);res.json({ success: true, data: { ...found, ...payload } });
 });
 

@@ -5,8 +5,10 @@ import { uploadWoundImage, getSignedWoundImageUrl, deleteWoundImageObject, stora
 const DEFAULT_STORE = { shifts:[], shiftResidents:[], changeLogs:[], toiletingLogs:[], handovers:[], auditLogs:[], medicationOrders:[], staffMembers:[] };
 let queue = Promise.resolve();
 const clone = value => JSON.parse(JSON.stringify(value));
-const iso = value => value ? new Date(value).toISOString() : null;
-const dateOnly = value => value ? String(value).slice(0,10) : null;
+const iso = value => { if(!value)return null; const d=new Date(value); return Number.isNaN(d.getTime())?null:d.toISOString(); };
+const dateOnly = value => { if(!value)return null; if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value.trim()))return value.trim(); const d=value instanceof Date?value:new Date(value); if(Number.isNaN(d.getTime()))throw new Error(`Ngày không hợp lệ: ${String(value)}`); return d.toISOString().slice(0,10); };
+let storeCache={value:null,expiresAt:0};
+export function invalidateStoreCache(){storeCache={value:null,expiresAt:0}}
 
 function mergeExtra(extra, canonical) { return { ...(extra || {}), ...canonical }; }
 function strip(obj, keys=[]) { const out={...(obj||{})}; for(const k of keys) delete out[k]; return out; }
@@ -68,6 +70,7 @@ export async function saveUsers(users) {
 
 export async function getStore() {
   if (!await middlewareSchemaReady()) return readJson('store.json', clone(DEFAULT_STORE));
+  if(storeCache.value&&Date.now()<storeCache.expiresAt)return clone(storeCache.value);
   const db=getPool();
   const [branches,residents,staff,shifts,shiftStaff,shiftResidents,care,vitals,images,toilets,instructions,handovers,signs,audits,users]=await Promise.all([
     db.query(`SELECT * FROM bcare_branches_ref`),db.query(`SELECT * FROM bcare_residents_ref`),db.query(`SELECT * FROM staff_members`),
@@ -106,7 +109,9 @@ export async function getStore() {
   const medicationOrders=instructions.rows.map(x=>mergeExtra(x.legacy_extra,{id:x.id,type:x.instruction_type,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot,residentCode:x.resident_code_snapshot,branchId:x.branch_id,branchName:x.branch_name_snapshot,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot,roomName:x.room_name_snapshot,bedName:x.bed_name_snapshot,morning:x.morning,noon:x.noon,evening:x.evening,status:x.status,source:x.source,createdBy:x.created_by,createdByName:x.created_by_name_cache,createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedAt:iso(x.updated_at),stoppedBy:x.stopped_by,stoppedAt:iso(x.stopped_at),stopReason:x.stop_reason,deleted:x.deleted}));
   const handoverRows=handovers.rows.map(x=>mergeExtra(x.legacy_extra,{id:x.id,shiftId:x.shift_id,branchId:x.branch_id,version:x.version,summaryNote:x.summary_note,confirmedBy:x.confirmed_by,confirmedByName:x.confirmed_by_name_cache,confirmedAt:iso(x.confirmed_at),receivedBy:x.received_by,receivedByName:x.received_by_name_cache,receivedAt:iso(x.received_at),participants:(sigMap.get(x.id)||[]).map(s=>({userId:s.staff_id,username:s.username_cache,employeeCode:s.employee_code_cache,fullName:s.full_name_cache,acknowledged:s.acknowledged,acknowledgedAt:iso(s.acknowledged_at),recordedBy:s.recorded_by}))}));
   const auditLogs=audits.rows.map(x=>({id:x.id,actorId:x.actor_id,actorName:x.actor_name,role:x.role,branchId:x.branch_id,action:x.action,objectType:x.object_type,objectId:x.object_id,detail:x.detail||{},occurredAt:iso(x.occurred_at)}));
-  return {shifts:shiftRows,shiftResidents:roster,changeLogs,toiletingLogs,handovers:handoverRows,auditLogs,medicationOrders,staffMembers};
+  const result={shifts:shiftRows,shiftResidents:roster,changeLogs,toiletingLogs,handovers:handoverRows,auditLogs,medicationOrders,staffMembers};
+  storeCache={value:clone(result),expiresAt:Date.now()+1500};
+  return result;
 }
 
 async function persistStore(db, store) {
@@ -126,7 +131,7 @@ async function persistStore(db, store) {
     INSERT INTO shifts(id,shift_date,shift_type,status,branch_id,branch_name_cache,area_id_cache,area_name_cache,room_id_cache,primary_recorder_staff_id,auto_created,created_by,created_at,staff_updated_by,staff_updated_at,locked_by,locked_at,legacy_extra)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13::timestamptz,NOW()),$14,$15,$16,$17,$18::jsonb)
     ON CONFLICT(id) DO UPDATE SET shift_date=EXCLUDED.shift_date,shift_type=EXCLUDED.shift_type,status=EXCLUDED.status,branch_id=EXCLUDED.branch_id,branch_name_cache=EXCLUDED.branch_name_cache,area_id_cache=EXCLUDED.area_id_cache,area_name_cache=EXCLUDED.area_name_cache,room_id_cache=EXCLUDED.room_id_cache,primary_recorder_staff_id=EXCLUDED.primary_recorder_staff_id,auto_created=EXCLUDED.auto_created,staff_updated_by=EXCLUDED.staff_updated_by,staff_updated_at=EXCLUDED.staff_updated_at,locked_by=EXCLUDED.locked_by,locked_at=EXCLUDED.locked_at,legacy_extra=EXCLUDED.legacy_extra
-  `,[x.id,x.shiftDate,x.shiftType,x.status||'OPEN',x.branchId,x.branchName||'',x.areaId||null,x.areaName||'',x.roomId||null,x.primaryRecorderId||x.assignedStaffId||null,!!x.autoCreated,x.createdBy||null,x.createdAt||null,x.staffUpdatedBy||null,x.staffUpdatedAt||null,x.lockedBy||null,x.lockedAt||null,JSON.stringify(strip(x,['assignedStaff','assignedStaffIds','assignedStaffNames']))]);await db.query(`DELETE FROM shift_staff WHERE shift_id=$1`,[x.id]);for(const p of x.assignedStaff||[]){if(!p?.id)continue;await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[x.id,p.id,p.id===(x.primaryRecorderId||x.assignedStaffId)])}}
+  `,[x.id,dateOnly(x.shiftDate),x.shiftType,x.status||'OPEN',x.branchId,x.branchName||'',x.areaId||null,x.areaName||'',x.roomId||null,x.primaryRecorderId||x.assignedStaffId||null,!!x.autoCreated,x.createdBy||null,x.createdAt||null,x.staffUpdatedBy||null,x.staffUpdatedAt||null,x.lockedBy||null,x.lockedAt||null,JSON.stringify(strip(x,['assignedStaff','assignedStaffIds','assignedStaffNames']))]);await db.query(`DELETE FROM shift_staff WHERE shift_id=$1`,[x.id]);for(const p of x.assignedStaff||[]){if(!p?.id)continue;await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[x.id,p.id,p.id===(x.primaryRecorderId||x.assignedStaffId)])}}
   if(shiftIds.length) await db.query(`DELETE FROM shifts WHERE NOT (id=ANY($1::text[]))`,[shiftIds]); else await db.query(`DELETE FROM shifts`);
 
   await db.query(`DELETE FROM shift_residents`);
@@ -189,6 +194,7 @@ async function persistStore(db, store) {
 }
 
 export async function updateStore(mutator) {
+  invalidateStoreCache();
   if (!await middlewareSchemaReady()) {
     queue=queue.then(async()=>{const store=await readJson('store.json',clone(DEFAULT_STORE));const result=await mutator(store);await writeJson('store.json',store);return result});
     return queue;
@@ -203,6 +209,7 @@ export async function updateStore(mutator) {
     for(const objectKey of committed.objectsToDelete||[]){
       try{await deleteWoundImageObject(objectKey)}catch(error){console.error(`[MEDIA] orphan cleanup failed ${objectKey}:`,error?.message||error)}
     }
+    invalidateStoreCache();
     return committed.result;
   });
   return queue;
