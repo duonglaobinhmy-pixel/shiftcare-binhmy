@@ -1,0 +1,37 @@
+{
+  "name": "Bình Mỹ Care - ShiftCare",
+  "short_name": "ShiftCare",
+  "description": "Sổ giao ca, nhật ký biến động NCT và bàn giao ca - Bình Mỹ Care",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3f7f5",
+  "theme_color": "#123c32",
+  "lang": "vi",
+  "categories": [
+    "medical",
+    "productivity",
+    "business"
+  ],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

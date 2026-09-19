@@ -1,0 +1,50 @@
+[
+  {
+    "id": "U001",
+    "username": "admin",
+    "password": "Admin@123",
+    "fullName": "Quản trị hệ thống",
+    "role": "ADMIN",
+    "branchId": null,
+    "branchName": "Toàn hệ thống",
+    "areaId": null,
+    "active": true
+  },
+  {
+    "id": "c484a678-5d71-489c-8d44-d59e9f6ab784",
+    "username": "csv.nt",
+    "password": "Demo@123",
+    "fullName": "Đinh Thị Kiều Chinh",
+    "role": "BRANCH_DIRECTOR",
+    "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
+    "branchName": "Trung Xuân Thu - Nguyễn Tuân",
+    "areaId": null,
+    "areaName": "",
+    "active": true,
+    "employeeCode": "csv.nt",
+    "fullAccess": false,
+    "permissions": [
+      "DASHBOARD.VIEW",
+      "SHIFT.VIEW",
+      "SHIFT.CREATE",
+      "SHIFT.UPDATE",
+      "SHIFT.DELETE",
+      "CARE.VIEW",
+      "HANDOVER.VIEW",
+      "REPORT.VIEW",
+      "REPORT.EXPORT",
+      "CARE.CREATE",
+      "CARE.UPDATE",
+      "CARE.DELETE",
+      "HANDOVER.SIGN",
+      "HANDOVER.RECEIVE",
+      "HANDOVER.OVERRIDE",
+      "MEDICAL.VIEW",
+      "MEDICAL.CREATE",
+      "MEDICAL.UPDATE",
+      "MEDICAL.STOP",
+      "MEDICAL.ADMINISTER",
+      "MEDICAL.DELETE"
+    ]
+  }
+]
