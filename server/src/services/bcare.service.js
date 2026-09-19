@@ -1,3 +1,4 @@
+import { cacheBcareResidents, logBcareSync } from './bcare-cache.service.js';
 import { branchInfo } from '../config/branches.js';
 let tokenCache = { token: null, expiresAt: 0, loginPreview: null };
 
@@ -73,6 +74,7 @@ export async function getResidents(payload = {}) {
     return { res, ...parsed };
   };
 
+  const startedAt = Date.now();
   try {
     let token = await loginBcare();
     let out = await call(token);
@@ -84,8 +86,11 @@ export async function getResidents(payload = {}) {
     const data = out.data?.data || out.data;
     if (!data || !Array.isArray(data.items)) throw new Error('BCARE response không có items[]');
     data.items = (data.items || []).map(x => { const b = branchInfo(x.branchId); return b ? { ...x, branchName: b.name, branchCode: b.code } : x; });
+    await cacheBcareResidents(data.items).catch(err => console.warn('[BCARE CACHE]', err.message));
+    await logBcareSync({operation:'ELDERLY_GETPAGING',endpoint:c.elderly,branchId:body.branchId||null,success:true,itemCount:data.items.length,durationMs:Date.now()-startedAt,meta:{pageIndex:body.pageIndex,pageSize:body.pageSize}}).catch(()=>{});
     return data;
   } catch (e) {
+    await logBcareSync({operation:'ELDERLY_GETPAGING',endpoint:c.elderly,branchId:body.branchId||null,success:false,durationMs:Date.now()-startedAt,error:e.message,meta:{pageIndex:body.pageIndex,pageSize:body.pageSize}}).catch(()=>{});
     if (!c.allowMock) throw e;
     return mockResidents(body, e.message);
   }

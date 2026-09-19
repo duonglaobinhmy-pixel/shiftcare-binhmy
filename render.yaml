@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: bcare-staging
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: PG_POOL_MAX
+        value: "5"
+      - key: PG_SSL
+        value: "true"
+      - key: ALLOW_BCARE_MOCK
+        value: "true"
