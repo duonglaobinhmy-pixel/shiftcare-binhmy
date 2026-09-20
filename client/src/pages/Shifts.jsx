@@ -158,7 +158,7 @@ export default function Shifts() {
   const today = todayVN();
   return <section>
     <header className="page-head">
-      <div><h1>{user.role === 'CAREGIVER' ? 'Ca của tôi' : 'Ca chăm sóc'}</h1><p>Mỗi ca có 2–3 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
+      <div><h1>Ca chăm sóc</h1><p>Mỗi ca có 2–3 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
       {canCreate && <button onClick={() => { if (show) { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); return; } setShow(true); setEditingShiftId(null); const next = freshForm(user); setForm(next); if (next.branchId) loadBranchData(next.branchId); }}>+ Tạo ca</button>}
     </header>
 

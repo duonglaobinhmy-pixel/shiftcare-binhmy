@@ -1,11 +1,12 @@
 import { getStore } from './store.service.js';
-import { canViewScopedRow, scopeLabel } from '../config/access.js';
-import { getDashboardBundleFast } from './fast-query.service.js';
 
 function list(value){return Array.isArray(value)?value:[]}
-function visible(user,row={}){ return canViewScopedRow(user,row); }
+function visible(user,row={}){
+  if(user?.role==='ADMIN')return true;
+  if(row.branchId&&user?.branchId&&row.branchId!==user.branchId)return false;
+  return true;
+}
 function todayVN(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date())}
-function dateVN(value){if(!value)return'';const d=value instanceof Date?value:new Date(value);if(Number.isNaN(d.getTime()))return'';return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(d)}
 function sourceRows(context){return context.recentChanges.slice(0,5).map(x=>({type:'CHANGE_LOG',id:x.id,label:x.residentName}))}
 
 function compact(user,store={}){
@@ -16,12 +17,13 @@ function compact(user,store={}){
   const handovers=list(store.handovers).filter(x=>ids.has(x.shiftId)&&visible(user,x));
   const date=todayVN();
   const todayShifts=shifts.filter(x=>x.shiftDate===date);
-  const todayChanges=changes.filter(x=>dateVN(x.occurredAt||x.createdAt)===date);
-  const todayToilets=toilets.filter(x=>dateVN(x.createdAt)===date);
+  const todayIds=new Set(todayShifts.map(x=>x.id));
+  const todayChanges=changes.filter(x=>todayIds.has(x.shiftId));
+  const todayToilets=toilets.filter(x=>todayIds.has(x.shiftId));
   const byCategory=todayChanges.reduce((acc,x)=>{acc[x.category]=(acc[x.category]||0)+1;return acc},{});
   return {
     date,
-    user:{role:user?.role||'',branchName:user?.branchName||'Toàn hệ thống',areaName:user?.areaName||'',scope:scopeLabel(user)},
+    user:{role:user?.role||'',branchName:user?.branchName||'Toàn hệ thống'},
     stats:{
       todayShifts:todayShifts.length,
       todayChanges:todayChanges.length,
@@ -73,13 +75,11 @@ function publicGeminiWarning(){
 export function getAIStatus(){
   const geminiConfigured=Boolean(String(process.env.GEMINI_API_KEY||'').trim());
   const sttFallbackConfigured=Boolean(String(process.env.STT_API_URL||'').trim());
-  const forceLocal=/^(1|true|yes|on)$/i.test(String(process.env.AI_FORCE_LOCAL||''));
   return {
-    forceLocal,
     geminiConfigured,
-    geminiAvailable:!forceLocal&&geminiConfigured&&!geminiBlockedReason,
+    geminiAvailable:geminiConfigured&&!geminiBlockedReason,
     geminiBlocked:Boolean(geminiBlockedReason),
-    geminiWarning:forceLocal?'AI_FORCE_LOCAL đang bật; hệ thống dùng phân tích nội bộ.':publicGeminiWarning(),
+    geminiWarning:publicGeminiWarning(),
     browserSpeechPreferred:true,
     sttFallbackConfigured
   };
@@ -87,57 +87,25 @@ export function getAIStatus(){
 
 async function callGeminiText(key,model,body){
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),Number(process.env.GEMINI_TIMEOUT_MS||6000));
-  try{
-    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok){
-      const error=new Error(data?.error?.message||`Gemini HTTP ${response.status}`);
-      error.status=response.status;
-      throw error;
-    }
-    return data;
-  }catch(error){
-    if(error?.name==='AbortError'){
-      const e=new Error('Gemini timeout');e.status=504;throw e;
-    }
+  const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok){
+    const error=new Error(data?.error?.message||`Gemini HTTP ${response.status}`);
+    error.status=response.status;
     throw error;
-  }finally{clearTimeout(timeout)}
+  }
+  return data;
 }
 
 export async function answerAI(user,message){
   let context;
-  try{
-    // Ưu tiên query PostgreSQL tối ưu và đã cắt scope theo role/branch.
-    const fast=await Promise.race([
-      getDashboardBundleFast(user,todayVN()),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error('AI fast context timeout')),2500))
-    ]);
-    if(fast){
-      context=compact(user,{
-        shifts:fast.shifts||[],
-        changeLogs:fast.changes||[],
-        toiletingLogs:fast.toilets||[],
-        handovers:fast.handovers||[]
-      });
-    }else{
-      const store=await Promise.race([
-        getStore(),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error('AI context timeout')),1800))
-      ]);
-      context=compact(user,store);
-    }
-  }catch(error){
-    console.error('[AI] Cannot build scoped context:',error?.message||error);
-    try{context=compact(user,await getStore())}catch{context=compact(user,{})}
+  try{context=compact(user,await getStore())}
+  catch(error){
+    console.error('[AI] Cannot build context:',error);
+    context=compact(user,{});
   }
 
-  const forceLocal=/^(1|true|yes|on)$/i.test(String(process.env.AI_FORCE_LOCAL||''));
   const key=String(process.env.GEMINI_API_KEY||'').trim();
-  if(forceLocal){
-    return {answer:fallbackAnswer(message,context),mode:'local-forced',model:null,warning:'AI_FORCE_LOCAL đang bật; hệ thống dùng phân tích nội bộ.',sources:sourceRows(context)};
-  }
   if(geminiBlockedReason){
     return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:publicGeminiWarning(),sources:sourceRows(context)};
   }
@@ -145,7 +113,7 @@ export async function answerAI(user,message){
     return {answer:fallbackAnswer(message,context),mode:'local-demo',model:null,warning:'Chưa cấu hình GEMINI_API_KEY; đang dùng phân tích nội bộ.',sources:sourceRows(context)};
   }
 
-  const system='Bạn là Trợ lý ShiftCare của Bình Mỹ Care. CONTEXT đã được server cắt đúng phạm vi phân quyền; tuyệt đối không suy đoán hoặc trả dữ liệu ngoài CONTEXT. Chỉ dùng CONTEXT được cung cấp. Không chẩn đoán y khoa. Không tự tạo số liệu, không suy đoán dữ liệu thiếu. Không được đề nghị hay thực hiện sửa/xóa/ký dữ liệu. Câu “không có biến động ghi nhận” không đồng nghĩa NCT hoàn toàn bình thường. Trả lời ngắn, rõ, tiếng Việt. Nếu hỏi số lượng, chỉ dùng số trong stats.';
+  const system='Bạn là Trợ lý ShiftCare của Bình Mỹ Care. Chỉ dùng CONTEXT được cung cấp. Không chẩn đoán y khoa. Không tự tạo số liệu, không suy đoán dữ liệu thiếu. Không được đề nghị hay thực hiện sửa/xóa/ký dữ liệu. Câu “không có biến động ghi nhận” không đồng nghĩa NCT hoàn toàn bình thường. Trả lời ngắn, rõ, tiếng Việt. Nếu hỏi số lượng, chỉ dùng số trong stats.';
   const body={contents:[{role:'user',parts:[{text:`${system}\n\nCONTEXT JSON:\n${JSON.stringify(context)}\n\nCÂU HỎI:\n${message}`}]}],generationConfig:{temperature:0.2,maxOutputTokens:900}};
   let lastError=null;
   for(const model of geminiModelCandidates()){

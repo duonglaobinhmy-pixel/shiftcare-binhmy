@@ -2,20 +2,31 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const FALLBACK_GROUPS = [
+const PERMISSION_GROUPS = [
   { module: 'DASHBOARD', label: 'Tổng quan', actions: ['VIEW'] },
   { module: 'SHIFT', label: 'Ca chăm sóc', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'CARE', label: 'Ghi nhận chăm sóc', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
   { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
   { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
-  { module: 'AI_REPORT', label: 'AI báo cáo', actions: ['VIEW'] },
   { module: 'AUDIT', label: 'Nhật ký hệ thống', actions: ['VIEW'] },
-  { module: 'USER', label: 'Tài khoản', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
+  { module: 'USER', label: 'Tài khoản & nhân sự', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'SYSTEM', label: 'Kết nối hệ thống', actions: ['VIEW', 'UPDATE'] },
 ];
 
-const FALLBACK_DEFAULTS = {
+const ACTION_LABELS = {
+  VIEW: 'Xem', CREATE: 'Thêm', UPDATE: 'Sửa', DELETE: 'Xóa', SIGN: 'Ký giao',
+  RECEIVE: 'Ký nhận', OVERRIDE: 'Sửa sau bàn giao', STOP: 'Ngừng y lệnh',
+  ADMINISTER: 'Thực hiện thuốc', EXPORT: 'Xuất file',
+};
+
+const ROLE_LABEL = {
+  ADMIN: 'Admin',
+  BRANCH_DIRECTOR: 'Giám đốc cơ sở',
+  CARE_SHARED: 'Tài khoản CSV dùng chung',
+};
+
+const ROLE_CAPS = {
   ADMIN: ['*'],
   BRANCH_DIRECTOR: [
     'DASHBOARD.VIEW',
@@ -24,580 +35,338 @@ const FALLBACK_DEFAULTS = {
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
-    'AI_REPORT.VIEW', 'AUDIT.VIEW',
-    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE',
+    'AUDIT.VIEW',
+    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
-  MEDICAL: [
-    'DASHBOARD.VIEW', 'SHIFT.VIEW',
-    'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
+  CARE_SHARED: [
+    'SHIFT.VIEW',
+    'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
-    'REPORT.VIEW',
+    'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
   ],
-  CAREGIVER: ['SHIFT.VIEW', 'CARE.VIEW', 'CARE.CREATE'],
 };
 
-const FALLBACK_CEILING = {
-  ADMIN: ['*'],
-  BRANCH_DIRECTOR: [
-    'DASHBOARD.VIEW',
-    'SHIFT.VIEW', 'SHIFT.CREATE', 'SHIFT.UPDATE', 'SHIFT.DELETE',
-    'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE', 'CARE.DELETE',
-    'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER', 'MEDICAL.DELETE',
-    'REPORT.VIEW', 'REPORT.EXPORT', 'AI_REPORT.VIEW', 'AUDIT.VIEW',
-    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'SYSTEM.VIEW',
-  ],
-  MEDICAL: [...FALLBACK_DEFAULTS.MEDICAL],
-  CAREGIVER: [...FALLBACK_DEFAULTS.CAREGIVER],
+const ROLE_DEFAULTS = {
+  ADMIN: [],
+  BRANCH_DIRECTOR: [...ROLE_CAPS.BRANCH_DIRECTOR],
+  CARE_SHARED: [...ROLE_CAPS.CARE_SHARED],
 };
 
-const ROLE_LABEL = {
-  ADMIN: 'Admin toàn hệ thống',
-  BRANCH_DIRECTOR: 'Giám đốc cơ sở',
-  MEDICAL: 'Nhân sự y khoa',
-  CAREGIVER: 'Chăm sóc viên',
-};
-
-const ACTION_LABEL = {
-  VIEW: 'Xem', CREATE: 'Thêm', UPDATE: 'Sửa', DELETE: 'Xóa',
-  SIGN: 'Ký giao', RECEIVE: 'Ký nhận', OVERRIDE: 'Sửa sau bàn giao',
-  STOP: 'Ngừng y lệnh', ADMINISTER: 'Thực hiện thuốc', EXPORT: 'Xuất file',
-};
-
-function initialForm(actor) {
-  const branchLocked = actor?.role === 'BRANCH_DIRECTOR';
-  return {
-    username: '',
-    password: 'Demo@123',
-    employeeCode: '',
-    fullName: '',
-    role: 'CAREGIVER',
-    branchId: branchLocked ? actor.branchId || '' : '',
-    branchName: branchLocked ? actor.branchName || '' : '',
-    areaId: '',
-    areaName: '',
-    permissions: [...FALLBACK_DEFAULTS.CAREGIVER],
-  };
-}
-
-function uniq(values = []) {
-  return [...new Set(values.filter(Boolean))];
-}
-
-function LoadingBlock({ text = 'Đang tải dữ liệu...' }) {
-  return (
-    <div className="users-loading-block">
-      <span className="users-spinner" />
-      <span>{text}</span>
-    </div>
-  );
-}
-
-function PermissionEditor({ groups, role, permissions, ceiling, disabled, onChange }) {
-  if (role === 'ADMIN') {
-    return (
-      <div className="permission-admin-note">
-        <b>Admin có toàn quyền.</b>
-        <span>Không thể bỏ quyền riêng lẻ của Admin.</span>
-      </div>
-    );
-  }
-
-  const selected = new Set(permissions || []);
-  const allowed = new Set(ceiling || []);
-
-  function toggle(permission) {
-    if (disabled || !allowed.has(permission)) return;
-    const next = new Set(selected);
-    if (next.has(permission)) next.delete(permission);
-    else next.add(permission);
-    onChange?.([...next]);
-  }
-
-  function toggleModule(modulePermissions) {
-    if (disabled) return;
-    const editable = modulePermissions.filter(permission => allowed.has(permission));
-    const allOn = editable.length > 0 && editable.every(permission => selected.has(permission));
-    const next = new Set(selected);
-    editable.forEach(permission => allOn ? next.delete(permission) : next.add(permission));
-    onChange?.([...next]);
-  }
-
-  return (
-    <div className="permission-editor">
-      <div className="permission-editor-head">
-        <div>
-          <b>Quyền chi tiết</b>
-          <small>Chỉ các ô không bị khóa mới được cấp cho vai trò này.</small>
-        </div>
-        <span>{selected.size} quyền đang chọn</span>
-      </div>
-
-      {groups.map(group => {
-        const modulePermissions = group.actions.map(action => `${group.module}.${action}`);
-        const editable = modulePermissions.filter(permission => allowed.has(permission));
-        const moduleOn = editable.length > 0 && editable.every(permission => selected.has(permission));
-        return (
-          <div className="permission-edit-row" key={group.module}>
-            <button
-              type="button"
-              className="permission-module-toggle"
-              disabled={disabled || editable.length === 0}
-              onClick={() => toggleModule(modulePermissions)}
-            >
-              <span className={`permission-module-check ${moduleOn ? 'on' : ''}`}>{moduleOn ? '✓' : ''}</span>
-              <b>{group.label}</b>
-            </button>
-
-            <div className="permission-edit-actions">
-              {group.actions.map(action => {
-                const permission = `${group.module}.${action}`;
-                const canAssign = allowed.has(permission);
-                const checked = selected.has(permission);
-                return (
-                  <label
-                    key={permission}
-                    className={`${checked ? 'checked' : ''} ${!canAssign ? 'locked' : ''}`}
-                    title={!canAssign ? 'Vai trò này không được cấp quyền này' : permission}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled || !canAssign}
-                      onChange={() => toggle(permission)}
-                    />
-                    <span>{ACTION_LABEL[action] || action}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const emptyAccountForm = () => ({
+  username: '',
+  password: 'Demo@123',
+  fullName: '',
+  role: 'BRANCH_DIRECTOR',
+  branchId: '',
+  branchName: '',
+  permissions: [...ROLE_DEFAULTS.BRANCH_DIRECTOR],
+});
 
 export default function Users() {
-  const { user, can } = useAuth();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
-  const [areas, setAreas] = useState([]);
-  const [policy, setPolicy] = useState(null);
-  const [form, setForm] = useState(() => initialForm(user));
+  const [showAccount, setShowAccount] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [showEditor, setShowEditor] = useState(false);
+  const [form, setForm] = useState(emptyAccountForm);
+  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [areasLoading, setAreasLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [ok, setOk] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [staffRows, setStaffRows] = useState([]);
-  const [staffBranchId, setStaffBranchId] = useState(user?.role === 'BRANCH_DIRECTOR' ? user.branchId || '' : '');
+  const [staffBranchId, setStaffBranchId] = useState(user?.role === 'BRANCH_DIRECTOR' ? (user.branchId || '') : '');
   const [staffForm, setStaffForm] = useState({ employeeCode: '', fullName: '' });
   const [staffBusy, setStaffBusy] = useState(false);
+  const [staffLoading, setStaffLoading] = useState(false);
   const staffFileRef = useRef(null);
 
-  const groups = policy?.groups || FALLBACK_GROUPS;
-  const rolePolicies = policy?.rolePolicies || {};
-  const assignableRoles = policy?.assignableRoles || (user?.role === 'ADMIN'
-    ? ['ADMIN', 'BRANCH_DIRECTOR', 'MEDICAL', 'CAREGIVER']
-    : ['MEDICAL', 'CAREGIVER']);
-
-  const selectedRolePolicy = rolePolicies[form.role] || {
-    defaultPermissions: FALLBACK_DEFAULTS[form.role] || [],
-    ceiling: FALLBACK_CEILING[form.role] || [],
-  };
-
-  const branch = useMemo(
-    () => branches.find(item => String(item.id) === String(form.branchId)) || null,
-    [branches, form.branchId]
-  );
-
-  async function loadPage() {
+  async function load() {
     setLoading(true);
     setErr('');
     try {
-      const [usersResult, branchesResult, policyResult] = await Promise.all([
-        api.users(),
+      const [b, u] = await Promise.all([
         api.branches(),
-        api.userPolicy().catch(() => ({ data: null })),
+        api.users(),
       ]);
-      setRows(usersResult.data || []);
-      setBranches(branchesResult.data || []);
-      setPolicy(policyResult.data || null);
+      setBranches(b.data || []);
+      setRows(u.data || []);
       if (user?.role === 'BRANCH_DIRECTOR') setStaffBranchId(user.branchId || '');
-    } catch (error) {
-      setErr(error.message);
+    } catch (e) {
+      setErr(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { loadPage(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!staffBranchId || !can('USER.VIEW')) {
-      setStaffRows([]);
-      return;
-    }
+    if (!staffBranchId) { setStaffRows([]); return; }
     let cancelled = false;
-    setStaffBusy(true);
+    setStaffLoading(true);
     api.staff(staffBranchId)
-      .then(result => { if (!cancelled) setStaffRows(result.data || []); })
-      .catch(error => { if (!cancelled) setErr(error.message); })
-      .finally(() => { if (!cancelled) setStaffBusy(false); });
+      .then(r => { if (!cancelled) setStaffRows(r.data || []); })
+      .catch(e => { if (!cancelled) setErr(e.message); })
+      .finally(() => { if (!cancelled) setStaffLoading(false); });
     return () => { cancelled = true; };
-  }, [staffBranchId, can]);
+  }, [staffBranchId]);
 
-  useEffect(() => {
-    if (form.role === 'ADMIN' || !form.branchId) {
-      setAreas([]);
-      return;
-    }
-    let cancelled = false;
-    setAreasLoading(true);
-    api.locations(form.branchId)
-      .then(result => { if (!cancelled) setAreas(result.data?.areas || []); })
-      .catch(error => { if (!cancelled) setErr(error.message); })
-      .finally(() => { if (!cancelled) setAreasLoading(false); });
-    return () => { cancelled = true; };
-  }, [form.branchId, form.role]);
+  const selectedBranch = useMemo(
+    () => branches.find(x => String(x.id) === String(form.branchId)) || null,
+    [branches, form.branchId]
+  );
 
-  function defaultsForRole(role) {
-    return [...(rolePolicies?.[role]?.defaultPermissions || FALLBACK_DEFAULTS[role] || [])].filter(p => p !== '*');
-  }
-
-  function ceilingForRole(role) {
-    return [...(rolePolicies?.[role]?.ceiling || FALLBACK_CEILING[role] || [])].filter(p => p !== '*');
-  }
-
-  function openCreate() {
-    const next = initialForm(user);
-    next.permissions = defaultsForRole(next.role);
+  function resetAccountEditor() {
+    setShowAccount(false);
     setEditingId(null);
-    setForm(next);
-    setShowEditor(true);
-    setErr('');
-    setOk('');
+    setForm(emptyAccountForm());
+    setFieldErrors({});
   }
 
-  function openEdit(row) {
+  function changeRole(role) {
+    setForm(current => ({
+      ...current,
+      role,
+      branchId: role === 'ADMIN' ? '' : current.branchId,
+      branchName: role === 'ADMIN' ? '' : current.branchName,
+      permissions: [...(ROLE_DEFAULTS[role] || [])],
+    }));
+  }
+
+  function togglePermission(permission) {
+    const cap = ROLE_CAPS[form.role] || [];
+    if (!cap.includes(permission)) return;
+    setForm(current => ({
+      ...current,
+      permissions: current.permissions.includes(permission)
+        ? current.permissions.filter(x => x !== permission)
+        : [...current.permissions, permission],
+    }));
+  }
+
+  function toggleModule(group, checked) {
+    const cap = new Set(ROLE_CAPS[form.role] || []);
+    const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key));
+    setForm(current => ({
+      ...current,
+      permissions: checked
+        ? [...new Set([...current.permissions, ...keys])]
+        : current.permissions.filter(x => !keys.includes(x)),
+    }));
+  }
+
+  function validateAccount() {
+    const errors = {};
+    if (!editingId && !/^[A-Za-z0-9._-]{4,40}$/.test(form.username.trim())) errors.username = 'Username 4–40 ký tự.';
+    if (!editingId && form.password.length < 8) errors.password = 'Mật khẩu tối thiểu 8 ký tự.';
+    if (editingId && form.password && form.password.length < 8) errors.password = 'Mật khẩu tối thiểu 8 ký tự.';
+    if (!form.fullName.trim()) errors.fullName = 'Bắt buộc nhập tên hiển thị.';
+    if (form.role !== 'ADMIN' && !form.branchId) errors.branchId = 'Phải chọn cơ sở.';
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function submitAccount(e) {
+    e.preventDefault();
+    if (!isAdmin || !validateAccount()) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const payload = {
+        username: form.username.trim(),
+        fullName: form.fullName.trim(),
+        role: form.role,
+        branchId: form.role === 'ADMIN' ? null : form.branchId,
+        branchName: form.role === 'ADMIN' ? '' : (selectedBranch?.name || form.branchName || ''),
+        permissions: form.role === 'ADMIN' ? [] : form.permissions,
+      };
+      if (form.password) payload.password = form.password;
+      if (editingId) await api.updateUser(editingId, payload);
+      else await api.createUser(payload);
+      resetAccountEditor();
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startCreateAccount() {
+    setEditingId(null);
+    setForm(emptyAccountForm());
+    setFieldErrors({});
+    setShowAccount(true);
+  }
+
+  function startEditAccount(row) {
     setEditingId(row.id);
     setForm({
       username: row.username || '',
       password: '',
-      employeeCode: row.employeeCode || row.username || '',
       fullName: row.fullName || '',
-      role: row.role || 'CAREGIVER',
+      role: row.role,
       branchId: row.branchId || '',
       branchName: row.branchName || '',
-      areaId: row.areaId || '',
-      areaName: row.areaName || '',
-      permissions: Array.isArray(row.permissions) ? [...row.permissions] : defaultsForRole(row.role),
+      permissions: Array.isArray(row.permissions) ? [...row.permissions] : [...(ROLE_DEFAULTS[row.role] || [])],
     });
-    setShowEditor(true);
-    setErr('');
-    setOk('');
+    setFieldErrors({});
+    setShowAccount(true);
   }
 
-  function changeRole(role) {
-    const director = user?.role === 'BRANCH_DIRECTOR';
-    setForm(current => ({
-      ...current,
-      role,
-      branchId: role === 'ADMIN' ? '' : (director ? user.branchId || '' : current.branchId),
-      branchName: role === 'ADMIN' ? '' : (director ? user.branchName || '' : current.branchName),
-      areaId: '',
-      areaName: '',
-      permissions: defaultsForRole(role),
-    }));
+  async function deactivate(row) {
+    if (!confirm(`Khóa tài khoản “${row.username}”?`)) return;
+    try { await api.deactivateUser(row.id); await load(); } catch (e) { setErr(e.message); }
   }
 
-  async function saveAccount(event) {
-    event.preventDefault();
-    if (saving) return;
-    setErr('');
-    setOk('');
-
-    if (!form.fullName.trim()) return setErr('Cần nhập họ tên.');
-    if (!form.employeeCode.trim()) return setErr('Cần nhập mã nhân viên.');
-    if (!editingId && !form.username.trim()) return setErr('Cần nhập username.');
-    if (!editingId && form.password.length < 8) return setErr('Mật khẩu tối thiểu 8 ký tự.');
-    if (form.role !== 'ADMIN' && !form.branchId) return setErr('Cần chọn cơ sở.');
-
-    setSaving(true);
-    try {
-      const area = areas.find(item => String(item.id) === String(form.areaId));
-      const payload = {
-        ...form,
-        username: form.username.trim(),
-        employeeCode: form.employeeCode.trim(),
-        fullName: form.fullName.trim(),
-        branchName: form.role === 'ADMIN' ? '' : (branch?.name || form.branchName || ''),
-        areaName: form.role === 'CAREGIVER' ? (area?.name || form.areaName || '') : '',
-        permissions: form.role === 'ADMIN'
-          ? ['*']
-          : uniq(form.permissions).filter(permission => ceilingForRole(form.role).includes(permission)),
-        fullAccess: form.role === 'ADMIN',
-      };
-
-      if (editingId) {
-        if (!payload.password) delete payload.password;
-        await api.updateUser(editingId, payload);
-        setOk('Đã cập nhật tài khoản và quyền.');
-      } else {
-        await api.createUser(payload);
-        setOk('Đã tạo tài khoản mới.');
-      }
-
-      setShowEditor(false);
-      setEditingId(null);
-      setForm(initialForm(user));
-      await loadPage();
-    } catch (error) {
-      setErr(error.message);
-    } finally {
-      setSaving(false);
-    }
+  async function activate(row) {
+    if (!confirm(`Mở khóa tài khoản “${row.username}”?`)) return;
+    try { await api.activateUser(row.id); await load(); } catch (e) { setErr(e.message); }
   }
 
-  async function toggleActive(row) {
-    setErr('');
-    try {
-      if (row.active === false) {
-        if (!confirm(`Mở khóa tài khoản “${row.username}”?`)) return;
-        await api.activateUser(row.id);
-      } else {
-        if (!confirm(`Khóa tài khoản “${row.username}”?`)) return;
-        await api.deactivateUser(row.id);
-      }
-      await loadPage();
-    } catch (error) { setErr(error.message); }
+  async function removeAccount(row) {
+    if (row.active) return alert('Phải khóa tài khoản trước khi xóa vĩnh viễn.');
+    const typed = prompt(`Nhập đúng username “${row.username}” để xác nhận xóa vĩnh viễn:`);
+    if (typed !== row.username) return;
+    try { await api.deleteUserPermanent(row.id, row.username); await load(); } catch (e) { setErr(e.message); }
   }
 
-  async function addStaff(event) {
-    event.preventDefault();
-    if (staffBusy) return;
-    setErr('');
+  async function reloadStaff() {
+    if (!staffBranchId) return setStaffRows([]);
+    const r = await api.staff(staffBranchId);
+    setStaffRows(r.data || []);
+  }
+
+  async function addStaff(e) {
+    e.preventDefault();
     if (!staffBranchId || !staffForm.employeeCode.trim() || !staffForm.fullName.trim()) {
       return setErr('Cần chọn cơ sở, mã nhân viên và họ tên.');
     }
     setStaffBusy(true);
+    setErr('');
     try {
       await api.createStaff({ branchId: staffBranchId, employeeCode: staffForm.employeeCode.trim(), fullName: staffForm.fullName.trim() });
       setStaffForm({ employeeCode: '', fullName: '' });
-      const result = await api.staff(staffBranchId);
-      setStaffRows(result.data || []);
-    } catch (error) { setErr(error.message); }
-    finally { setStaffBusy(false); }
+      await reloadStaff();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setStaffBusy(false);
+    }
   }
 
-  async function importStaffFile(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  async function importStaffFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) return setErr('Chỉ nhận file Excel .xlsx.');
     if (!staffBranchId) return setErr('Hãy chọn cơ sở trước khi tải Excel.');
+    if (!/\.xlsx$/i.test(file.name)) return setErr('Chỉ nhận file Excel .xlsx.');
+    if (file.size > 5 * 1024 * 1024) return setErr('File Excel tối đa 5 MB.');
     setStaffBusy(true);
     setErr('');
     try {
       const fileBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = reject;
+        reader.onerror = () => reject(new Error('Không đọc được file Excel.'));
         reader.readAsDataURL(file);
       });
-      await api.importStaff({ branchId: staffBranchId, fileBase64, fileName: file.name });
-      const result = await api.staff(staffBranchId);
-      setStaffRows(result.data || []);
-    } catch (error) { setErr(error.message); }
-    finally { setStaffBusy(false); }
+      const result = await api.importStaff({ branchId: staffBranchId, fileName: file.name, fileBase64 });
+      await reloadStaff();
+      alert(`Đã nhập ${result.data.importedCount} nhân viên. Bỏ qua ${result.data.skippedCount} dòng trùng mã.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setStaffBusy(false);
+    }
   }
 
   async function editStaff(row) {
-    const employeeCode = prompt('Mã nhân viên:', row.employeeCode || '');
-    if (employeeCode == null) return;
-    const fullName = prompt('Họ tên:', row.fullName || '');
-    if (fullName == null) return;
-    setStaffBusy(true);
-    try {
-      await api.updateStaff(row.id, { employeeCode: employeeCode.trim(), fullName: fullName.trim() });
-      const result = await api.staff(staffBranchId);
-      setStaffRows(result.data || []);
-    } catch (error) { setErr(error.message); }
-    finally { setStaffBusy(false); }
+    const fullName = prompt('Họ tên nhân viên', row.fullName);
+    if (fullName === null) return;
+    const employeeCode = prompt('Mã nhân viên', row.employeeCode);
+    if (employeeCode === null) return;
+    try { await api.updateStaff(row.id, { fullName, employeeCode }); await reloadStaff(); } catch (e) { setErr(e.message); }
   }
 
-  async function deleteStaff(row) {
-    const reason = prompt(`Lý do đưa ${row.fullName} khỏi danh bạ phân ca:`);
-    if (!reason?.trim()) return;
-    setStaffBusy(true);
-    try {
-      await api.deleteStaff(row.id, reason.trim());
-      const result = await api.staff(staffBranchId);
-      setStaffRows(result.data || []);
-    } catch (error) { setErr(error.message); }
-    finally { setStaffBusy(false); }
+  async function removeStaff(row) {
+    const reason = prompt(`Lý do xóa nhân viên “${row.fullName}”?`);
+    if (!reason) return;
+    try { await api.deleteStaff(row.id, reason); await reloadStaff(); } catch (e) { setErr(e.message); }
   }
 
-  if (loading) {
-    return <section className="accounts-page"><LoadingBlock text="Đang tải tài khoản, cơ sở và chính sách quyền..." /></section>;
-  }
+  return <section>
+    <header className="page-head">
+      <div>
+        <h1>Tài khoản & nhân sự</h1>
+        <p>Admin quản tài khoản. Giám đốc cơ sở quản danh sách nhân viên thực tế của đúng cơ sở mình.</p>
+      </div>
+      {isAdmin && <button onClick={showAccount ? resetAccountEditor : startCreateAccount}>{showAccount ? 'Đóng' : '+ Tạo tài khoản'}</button>}
+    </header>
 
-  return (
-    <section className="accounts-page">
-      <header className="page-head accounts-head">
+    {err && <div className="error">{err}</div>}
+
+    <div className="panel">
+      <div className="permission-head">
         <div>
-          <h1>Tài khoản & phân quyền</h1>
-          <p>Admin cấp quyền chi tiết bằng checkbox. Server vẫn giới hạn quyền tối đa theo vai trò và phạm vi cơ sở.</p>
+          <h2>Danh sách nhân viên theo cơ sở</h2>
+          <p>Nhân viên không cần tài khoản riêng. Danh sách này dùng để chọn 2–3 người vào ca.</p>
         </div>
-        {can('USER.CREATE') && <button type="button" onClick={openCreate}>+ Tạo tài khoản</button>}
-      </header>
-
-      {err && <div className="error account-message">{err}</div>}
-      {ok && <div className="success account-message">{ok}</div>}
-
-      <div className="access-hierarchy">
-        <div className="access-card admin"><span>01</span><div><b>ADMIN</b><strong>Toàn hệ thống</strong><small>Full quyền, tất cả cơ sở và cấu hình.</small></div></div>
-        <div className="hierarchy-arrow">→</div>
-        <div className="access-card director"><span>02</span><div><b>GIÁM ĐỐC CƠ SỞ</b><strong>Quyền được Admin tick</strong><small>Chỉ hiệu lực trong đúng cơ sở; không thể vượt trần quyền của Director.</small></div></div>
-        <div className="hierarchy-arrow">→</div>
-        <div className="access-card caregiver"><span>03</span><div><b>NHÂN SỰ</b><strong>Y khoa / Chăm sóc viên</strong><small>Quyền tối thiểu theo nghiệp vụ và khu được phân công.</small></div></div>
       </div>
-
-      {showEditor && (
-        <form className="panel account-editor" onSubmit={saveAccount}>
-          {saving && <div className="account-saving-overlay"><div><span className="users-spinner" /><b>{editingId ? 'Đang cập nhật tài khoản...' : 'Đang tạo tài khoản...'}</b><small>Đang gọi API, vui lòng không bấm lại.</small></div></div>}
-
-          <div className="panel-title">
-            <div><h2>{editingId ? 'Sửa tài khoản' : 'Tạo tài khoản mới'}</h2><p>Thông tin đăng nhập, phạm vi dữ liệu và quyền được lưu cùng tài khoản.</p></div>
-            <button type="button" className="secondary" disabled={saving} onClick={() => setShowEditor(false)}>Đóng</button>
-          </div>
-
-          <div className="account-form-grid">
-            <label>Vai trò
-              <select value={form.role} disabled={saving || !!editingId && form.role === 'ADMIN' && user?.role !== 'ADMIN'} onChange={e => changeRole(e.target.value)}>
-                {assignableRoles.map(role => <option key={role} value={role}>{ROLE_LABEL[role] || role}</option>)}
-              </select>
-            </label>
-
-            <label>Username
-              <input value={form.username} disabled={saving || !!editingId} onChange={e => setForm(v => ({ ...v, username: e.target.value }))} placeholder="vd: csv.nguyentuan" />
-            </label>
-
-            <label>Mật khẩu
-              <input type="password" value={form.password} disabled={saving} onChange={e => setForm(v => ({ ...v, password: e.target.value }))} placeholder={editingId ? 'Để trống nếu không đổi' : 'Tối thiểu 8 ký tự'} />
-            </label>
-
-            <label>Mã nhân viên
-              <input value={form.employeeCode} disabled={saving} onChange={e => setForm(v => ({ ...v, employeeCode: e.target.value }))} />
-            </label>
-
-            <label>Họ tên
-              <input value={form.fullName} disabled={saving} onChange={e => setForm(v => ({ ...v, fullName: e.target.value }))} />
-            </label>
-
-            {form.role !== 'ADMIN' && (
-              <label>Cơ sở
-                <select value={form.branchId} disabled={saving || user?.role === 'BRANCH_DIRECTOR'} onChange={e => setForm(v => ({ ...v, branchId: e.target.value, branchName: branches.find(x => String(x.id) === String(e.target.value))?.name || '', areaId: '', areaName: '' }))}>
-                  <option value="">Chọn cơ sở</option>
-                  {branches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
-            )}
-
-            {form.role === 'CAREGIVER' && (
-              <label>Khu phụ trách
-                <select value={form.areaId} disabled={saving || areasLoading} onChange={e => setForm(v => ({ ...v, areaId: e.target.value, areaName: areas.find(x => String(x.id) === String(e.target.value))?.name || '' }))}>
-                  <option value="">{areasLoading ? 'Đang tải khu...' : 'Chọn khu'}</option>
-                  {areas.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
-            )}
-          </div>
-
-          <PermissionEditor
-            groups={groups}
-            role={form.role}
-            permissions={form.permissions}
-            ceiling={ceilingForRole(form.role)}
-            disabled={saving || form.role === 'ADMIN'}
-            onChange={permissions => setForm(v => ({ ...v, permissions }))}
-          />
-
-          <div className="account-editor-actions">
-            <button type="submit" disabled={saving}>{saving ? 'Đang lưu...' : (editingId ? 'Lưu thay đổi' : 'Tạo tài khoản')}</button>
-            <button type="button" className="secondary" disabled={saving || form.role === 'ADMIN'} onClick={() => setForm(v => ({ ...v, permissions: defaultsForRole(v.role) }))}>Khôi phục quyền mặc định</button>
-          </div>
+      <div className="form-grid user-form">
+        <label>Cơ sở *
+          <select disabled={!isAdmin} value={staffBranchId} onChange={e => setStaffBranchId(e.target.value)}>
+            <option value="">-- Chọn cơ sở --</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </label>
+        <form className="inline-form" onSubmit={addStaff}>
+          <label>Mã nhân viên *<input value={staffForm.employeeCode} onChange={e => setStaffForm({ ...staffForm, employeeCode: e.target.value })} /></label>
+          <label>Họ tên *<input value={staffForm.fullName} onChange={e => setStaffForm({ ...staffForm, fullName: e.target.value })} /></label>
+          <button disabled={staffBusy || !staffBranchId}>{staffBusy ? 'Đang lưu...' : '+ Thêm nhân viên'}</button>
+          <button type="button" className="secondary" disabled={staffBusy || !staffBranchId} onClick={() => staffFileRef.current?.click()}>Tải Excel</button>
+          <input ref={staffFileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={importStaffFile} />
         </form>
-      )}
+      </div>
+      {staffLoading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải nhân viên...</b></div></div> :
+        staffBranchId && <div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+          {staffRows.map(x => <tr key={x.id}><td><b>{x.employeeCode}</b></td><td>{x.fullName}</td><td><span className={`status-pill ${x.active !== false ? 'on' : 'off'}`}>{x.active !== false ? 'Đang làm việc' : 'Ngừng làm việc'}</span></td><td><div className="actions"><button className="secondary" onClick={() => editStaff(x)}>Sửa</button><button className="danger" onClick={() => removeStaff(x)}>Xóa</button></div></td></tr>)}
+          {!staffRows.length && <tr><td colSpan="4">Chưa có nhân viên trong cơ sở.</td></tr>}
+        </tbody></table></div>}
+    </div>
 
-      <div className="panel accounts-list-panel">
-        <div className="panel-title"><div><h2>Danh sách tài khoản</h2><p>{rows.length} tài khoản trong phạm vi hiện tại</p></div></div>
-        <div className="account-table-wrap">
-          <table className="account-table">
-            <thead><tr><th>Tài khoản</th><th>Vai trò</th><th>Phạm vi</th><th>Quyền</th><th>Trạng thái</th><th /></tr></thead>
-            <tbody>
-              {rows.map(row => (
-                <tr key={row.id}>
-                  <td><b>{row.fullName || row.username}</b><small>{row.username} • {row.employeeCode || '—'}</small></td>
-                  <td>{ROLE_LABEL[row.role] || row.role}</td>
-                  <td>{row.role === 'ADMIN' ? 'Toàn hệ thống' : [row.branchName, row.areaName].filter(Boolean).join(' • ') || '—'}</td>
-                  <td><span className="permission-count-badge">{row.role === 'ADMIN' ? 'FULL' : `${Array.isArray(row.permissions) ? row.permissions.length : 0} quyền`}</span></td>
-                  <td><span className={`status-pill ${row.active === false ? 'off' : 'on'}`}>{row.active === false ? 'Đã khóa' : 'Đang hoạt động'}</span></td>
-                  <td className="account-row-actions">
-                    {can('USER.UPDATE') && <button type="button" className="secondary" onClick={() => openEdit(row)}>Sửa</button>}
-                    {can('USER.UPDATE') && row.id !== user?.sub && <button type="button" className="secondary" onClick={() => toggleActive(row)}>{row.active === false ? 'Mở khóa' : 'Khóa'}</button>}
-                  </td>
-                </tr>
-              ))}
-              {!rows.length && <tr><td colSpan="6" className="empty-cell">Chưa có tài khoản trong phạm vi này.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+    {isAdmin && showAccount && <form className="panel user-editor" onSubmit={submitAccount} noValidate>
+      <div className="form-grid user-form">
+        <label>Username *<input disabled={!!editingId} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />{fieldErrors.username && <small className="field-error">{fieldErrors.username}</small>}</label>
+        <label>{editingId ? 'Mật khẩu mới' : 'Mật khẩu *'}<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />{fieldErrors.password && <small className="field-error">{fieldErrors.password}</small>}</label>
+        <label>Tên hiển thị *<input value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />{fieldErrors.fullName && <small className="field-error">{fieldErrors.fullName}</small>}</label>
+        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option></select></label>
+        {form.role !== 'ADMIN' && <label>Cơ sở *<select value={form.branchId} onChange={e => { const b = branches.find(x => String(x.id) === String(e.target.value)); setForm(current => ({ ...current, branchId: e.target.value, branchName: b?.name || '' })); }}><option value="">-- Chọn cơ sở --</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>{fieldErrors.branchId && <small className="field-error">{fieldErrors.branchId}</small>}</label>}
       </div>
 
-      {can('USER.VIEW') && (
-        <div className="panel staff-directory-panel">
-          <div className="panel-title"><div><h2>Danh bạ nhân sự phân ca</h2><p>Danh sách này dùng khi chọn 2–3 nhân sự trong ca.</p></div></div>
+      {form.role === 'ADMIN' ? <div className="permission-section"><div className="permission-head"><div><h3>Admin</h3><p>Admin luôn có toàn quyền hệ thống. Không cần tick từng quyền.</p></div></div></div> :
+      <div className="permission-section">
+        <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>Role chỉ là trần quyền; quyền thực tế là những ô đang được tick.</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>
+        <div className="permission-matrix">{PERMISSION_GROUPS.map(group => {
+          const cap = new Set(ROLE_CAPS[form.role] || []);
+          const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key));
+          if (!keys.length) return null;
+          const allChecked = keys.every(key => form.permissions.includes(key));
+          return <div className="permission-row" key={group.module}><label className="permission-module"><input type="checkbox" checked={allChecked} onChange={e => toggleModule(group, e.target.checked)} /><b>{group.label}</b></label><div>{group.actions.map(action => { const key = `${group.module}.${action}`; if (!cap.has(key)) return null; return <label className="permission-toggle" key={key}><input type="checkbox" checked={form.permissions.includes(key)} onChange={() => togglePermission(key)} />{ACTION_LABELS[action] || action}</label>; })}</div></div>;
+        })}</div>
+      </div>}
 
-          {user?.role === 'ADMIN' && (
-            <label className="staff-branch-picker">Cơ sở
-              <select value={staffBranchId} onChange={e => setStaffBranchId(e.target.value)}>
-                <option value="">Chọn cơ sở</option>
-                {branches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-          )}
+      <div className="actions"><button disabled={busy}>{busy ? 'Đang lưu tài khoản...' : editingId ? 'Lưu tài khoản & quyền' : 'Tạo tài khoản'}</button><button type="button" className="secondary" onClick={resetAccountEditor}>Hủy</button></div>
+    </form>}
 
-          {can('USER.CREATE') && staffBranchId && (
-            <form className="staff-add-form" onSubmit={addStaff}>
-              <input value={staffForm.employeeCode} disabled={staffBusy} onChange={e => setStaffForm(v => ({ ...v, employeeCode: e.target.value }))} placeholder="Mã nhân viên" />
-              <input value={staffForm.fullName} disabled={staffBusy} onChange={e => setStaffForm(v => ({ ...v, fullName: e.target.value }))} placeholder="Họ tên" />
-              <button type="submit" disabled={staffBusy}>{staffBusy ? 'Đang lưu...' : '+ Thêm nhân viên'}</button>
-              <button type="button" className="secondary" disabled={staffBusy} onClick={() => staffFileRef.current?.click()}>Import Excel</button>
-              <input ref={staffFileRef} type="file" accept=".xlsx" hidden onChange={importStaffFile} />
-            </form>
-          )}
-
-          {staffBusy && <LoadingBlock text="Đang xử lý danh sách nhân sự..." />}
-          {!staffBusy && staffBranchId && (
-            <div className="staff-grid">
-              {staffRows.map(row => (
-                <div className="staff-card" key={row.id}>
-                  <div><b>{row.fullName}</b><small>{row.employeeCode}</small></div>
-                  {can('USER.UPDATE') && <div><button type="button" className="secondary" onClick={() => editStaff(row)}>Sửa</button><button type="button" className="secondary danger" onClick={() => deleteStaff(row)}>Xóa</button></div>}
-                </div>
-              ))}
-              {!staffRows.length && <div className="empty-state">Cơ sở chưa có nhân sự trong danh bạ phân ca.</div>}
-            </div>
-          )}
-        </div>
-      )}
-    </section>
-  );
+    {isAdmin && <div className="panel">
+      <div className="permission-head"><div><h2>Tài khoản đăng nhập</h2><p>Mỗi cơ sở tối đa 1 Giám đốc hoạt động và 1 tài khoản CSV dùng chung hoạt động.</p></div></div>
+      {loading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải tài khoản...</b></div></div> : <div className="table-wrap"><table><thead><tr><th>Tài khoản</th><th>Tên hiển thị</th><th>Vai trò</th><th>Cơ sở</th><th>Quyền</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+        {rows.map(x => <tr key={x.id}><td><b>{x.username}</b></td><td>{x.fullName}</td><td>{ROLE_LABEL[x.role] || x.role}</td><td>{x.role === 'ADMIN' ? 'Toàn hệ thống' : (x.branchName || '—')}</td><td>{x.role === 'ADMIN' ? <span className="status-pill on">Toàn quyền</span> : <span>{Array.isArray(x.permissions) ? x.permissions.length : 0} quyền</span>}</td><td><span className={`status-pill ${x.active ? 'on' : 'off'}`}>{x.active ? 'Hoạt động' : 'Đã khóa'}</span></td><td><div className="actions"><button className="secondary" onClick={() => startEditAccount(x)}>Sửa quyền</button>{x.active ? <button className="secondary" onClick={() => deactivate(x)}>Khóa</button> : <button onClick={() => activate(x)}>Mở khóa</button>}{!x.active && <button className="danger" onClick={() => removeAccount(x)}>Xóa</button>}</div></td></tr>)}
+      </tbody></table></div>}
+    </div>}
+  </section>;
 }

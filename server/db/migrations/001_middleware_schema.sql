@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS users (
   branch_name_cache TEXT NOT NULL DEFAULT '',
   area_id_cache TEXT NULL,
   area_name_cache TEXT NOT NULL DEFAULT '',
-  full_access BOOLEAN NOT NULL DEFAULT FALSE,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   deactivated_at TIMESTAMPTZ NULL,
   deactivated_by TEXT NULL,
@@ -57,6 +56,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('ADMIN','BRANCH_DIRECTOR','CARE_SHARED'));
 
 CREATE TABLE IF NOT EXISTS user_permissions (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -107,7 +109,6 @@ CREATE TABLE IF NOT EXISTS shifts (
   area_id_cache TEXT NULL,
   area_name_cache TEXT NOT NULL DEFAULT '',
   room_id_cache TEXT NULL,
-  primary_recorder_staff_id TEXT NULL REFERENCES staff_members(id) ON DELETE SET NULL,
   auto_created BOOLEAN NOT NULL DEFAULT FALSE,
   created_by TEXT NULL REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -161,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_shift_resident_resident ON shift_residents(bcare_
 CREATE TABLE IF NOT EXISTS care_records (
   id TEXT PRIMARY KEY,
   client_request_id TEXT NULL,
-  shift_id TEXT NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+  shift_id TEXT NOT NULL REFERENCES shifts(id) ON DELETE RESTRICT,
   bcare_resident_id TEXT NOT NULL REFERENCES bcare_residents_ref(bcare_resident_id) ON DELETE RESTRICT,
   resident_name_snapshot TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL,
@@ -200,6 +201,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_care_client_request ON care_records(client_
 CREATE INDEX IF NOT EXISTS idx_care_resident_time ON care_records(bcare_resident_id, occurred_at DESC) WHERE deleted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_care_shift_time ON care_records(shift_id, occurred_at DESC) WHERE deleted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_care_attention ON care_records(branch_id, attention_status, attention_level, occurred_at DESC) WHERE deleted = FALSE;
+CREATE INDEX IF NOT EXISTS idx_care_branch_time ON care_records(branch_id, occurred_at DESC) WHERE deleted = FALSE;
 
 CREATE TABLE IF NOT EXISTS care_record_vitals (
   care_record_id TEXT PRIMARY KEY REFERENCES care_records(id) ON DELETE CASCADE,
@@ -209,6 +211,8 @@ CREATE TABLE IF NOT EXISTS care_record_vitals (
   bp_dia NUMERIC(6,2) NULL,
   spo2 NUMERIC(6,2) NULL,
   respiratory_rate NUMERIC(6,2) NULL,
+  blood_glucose NUMERIC(8,2) NULL,
+  insulin_dose_units NUMERIC(8,2) NULL,
   concern BOOLEAN NOT NULL DEFAULT FALSE,
   alert_level TEXT NOT NULL DEFAULT 'NORMAL',
   alerts JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -236,7 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_care_images_record ON care_record_images(care_rec
 CREATE TABLE IF NOT EXISTS toileting_logs (
   id TEXT PRIMARY KEY,
   client_request_id TEXT NULL,
-  shift_id TEXT NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+  shift_id TEXT NOT NULL REFERENCES shifts(id) ON DELETE RESTRICT,
   bcare_resident_id TEXT NOT NULL REFERENCES bcare_residents_ref(bcare_resident_id) ON DELETE RESTRICT,
   resident_name_snapshot TEXT NOT NULL DEFAULT '',
   bowel_status TEXT NOT NULL,
@@ -262,6 +266,7 @@ CREATE TABLE IF NOT EXISTS toileting_logs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_toilet_client_request ON toileting_logs(client_request_id) WHERE client_request_id IS NOT NULL AND client_request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_toilet_resident_time ON toileting_logs(bcare_resident_id, created_at DESC) WHERE deleted = FALSE;
+CREATE INDEX IF NOT EXISTS idx_toilet_branch_time ON toileting_logs(branch_id, created_at DESC) WHERE deleted = FALSE;
 
 -- Local care instruction / execution support. This does NOT replace BCARE prescription master data.
 CREATE TABLE IF NOT EXISTS care_instructions (
@@ -301,7 +306,7 @@ CREATE INDEX IF NOT EXISTS idx_care_instruction_resident ON care_instructions(bc
 -- ============================================================
 CREATE TABLE IF NOT EXISTS handovers (
   id TEXT PRIMARY KEY,
-  shift_id TEXT NOT NULL UNIQUE REFERENCES shifts(id) ON DELETE CASCADE,
+  shift_id TEXT NOT NULL UNIQUE REFERENCES shifts(id) ON DELETE RESTRICT,
   branch_id TEXT NOT NULL REFERENCES bcare_branches_ref(bcare_branch_id) ON DELETE RESTRICT,
   version INTEGER NOT NULL DEFAULT 1,
   summary_note TEXT NOT NULL DEFAULT '',

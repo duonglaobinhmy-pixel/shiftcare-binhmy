@@ -25,7 +25,6 @@ router.get('/locations', async (req,res) => {
       const r=await getResidents({pageIndex:page,pageSize:100,branchId,status:1});
       all.push(...(r.items||[])); totalPage=Number(r.totalPage||1); page++;
     } while(page<=totalPage && page<=20);
-    if(req.user.role==='CAREGIVER' && req.user.areaId) all=all.filter(x=>!x.areaId||x.areaId===req.user.areaId);
     const areaMap=new Map(), roomMap=new Map();
     for(const x of all){
       if(x.areaId && x.areaName) areaMap.set(x.areaId,{id:x.areaId,name:x.areaName});
@@ -39,15 +38,14 @@ router.get('/locations', async (req,res) => {
 router.post('/residents', async (req, res) => {
   const payload = { ...req.body };
   payload.branchId = scopedBranch(req, payload.branchId);
-  const query=String(payload.query||'').trim().toLocaleLowerCase('vi'),requestedArea=payload.areaId||'',scopeArea=req.user.role==='CAREGIVER'?req.user.areaId||'':'';
+  const query=String(payload.query||'').trim().toLocaleLowerCase('vi'),requestedArea=payload.areaId||'';
   let data;
-  if(query||requestedArea||scopeArea){
+  if(query||requestedArea){
     let page=1,totalPage=1,all=[];do{const batch=await getResidents({...payload,pageIndex:page,pageSize:100});all.push(...(batch.items||[]));totalPage=Number(batch.totalPage||1);page++}while(page<=totalPage&&page<=20);
-    if(scopeArea)all=all.filter(x=>!x.areaId||x.areaId===scopeArea);
     if(requestedArea)all=all.filter(x=>x.areaId===requestedArea);
     if(query)all=all.filter(x=>`${x.fullName||''} ${x.code||''} ${x.roomName||''} ${x.bedName||''}`.toLocaleLowerCase('vi').includes(query));
     const pageIndex=Math.max(1,Number(payload.pageIndex||1)),pageSize=Math.min(100,Math.max(1,Number(payload.pageSize||20))),start=(pageIndex-1)*pageSize;
-    data={pageIndex,pageSize,totalItem:all.length,totalPage:Math.max(1,Math.ceil(all.length/pageSize)),items:all.slice(start,start+pageSize),serverFiltered:true,scopedForCaregiver:!!scopeArea};
+    data={pageIndex,pageSize,totalItem:all.length,totalPage:Math.max(1,Math.ceil(all.length/pageSize)),items:all.slice(start,start+pageSize),serverFiltered:true};
   }else data=await getResidents(payload);
   res.json({ success: true, data });
 });

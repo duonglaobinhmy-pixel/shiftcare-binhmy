@@ -4,9 +4,7 @@ import { authenticate, allowRoles, allowPermission } from '../middleware/auth.js
 import { getUsers, saveUsers, getStore, updateStore } from '../services/store.service.js';
 import { audit } from '../services/audit.service.js';
 import { CARE_BRANCH_MAP } from '../config/branches.js';
-import { getResidents } from '../services/bcare.service.js';
-import { PERMISSION_GROUPS, rolePermissions, rolePermissionCeiling, assignablePermissions, normalizePermissions } from '../config/permissions.js';
-import { assignableRoles, canManageUser, effectiveBranchId, isAdmin } from '../config/access.js';
+import { DEFAULT_PERMISSIONS, sanitizePermissions } from '../config/permissions.js';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,9 +17,8 @@ const execFileAsync = promisify(execFile);
 
 function publicUser(u) {
   const { password, ...safe } = u;
-  return { ...safe, permissions: normalizePermissions(u), fullAccess: u.role === 'ADMIN' };
+  return safe;
 }
-
 
 function validUsername(v) {
   return /^[A-Za-z0-9._-]{4,40}$/.test(String(v || '').trim());
@@ -31,11 +28,14 @@ function validEmployeeCode(v) {
   return /^[A-Za-z0-9._-]{1,30}$/.test(String(v || '').trim());
 }
 
-const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'MEDICAL', 'CAREGIVER']);
+const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'CARE_SHARED']);
 
+function isBranchDirector(user) {
+  return user.role === 'BRANCH_DIRECTOR';
+}
 
 function staffScope(actor, row) {
-  return isAdmin(actor) || String(row?.branchId || '') === String(actor.branchId || '');
+  return actor.role === 'ADMIN' || String(row?.branchId || '') === String(actor.branchId || '');
 }
 
 function validStaffPayload(body) {
@@ -80,17 +80,17 @@ async function parseEmployeeWorkbook(fileBase64) {
 }
 
 router.get('/staff', allowPermission('USER.VIEW'), async (req, res) => {
-  const branchId = effectiveBranchId(req.user, req.query.branchId || '');
+  const branchId = req.user.role === 'ADMIN' ? String(req.query.branchId || '') : String(req.user.branchId || '');
   if (!branchId) return res.status(400).json({ success: false, message: 'Vui lòng chọn cơ sở.' });
   const store = await getStore();
-  const rows = (store.staffMembers || []).filter(x => x.branchId === branchId && !x.deleted).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'vi'));
+  const rows = (store.staffMembers || []).filter(x => String(x.branchId) === String(branchId) && !x.deleted).map(x=>({...x,active:x.active!==false})).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'vi'));
   res.json({ success: true, data: rows });
 });
 
 router.post('/staff', allowPermission('USER.CREATE'), async (req, res) => {
   try {
     const { employeeCode, fullName } = validStaffPayload(req.body || {});
-    const branchId = effectiveBranchId(req.user, req.body?.branchId || '');
+    const branchId = req.user.role === 'ADMIN' ? String(req.body?.branchId || '') : String(req.user.branchId || '');
     const branch = CARE_BRANCH_MAP[branchId];
     if (!branch) return res.status(400).json({ success: false, message: 'Cơ sở không hợp lệ.' });
     const store = await getStore();
@@ -104,7 +104,7 @@ router.post('/staff', allowPermission('USER.CREATE'), async (req, res) => {
 
 router.post('/staff/import', allowPermission('USER.CREATE'), async (req, res) => {
   try {
-    const branchId = effectiveBranchId(req.user, req.body?.branchId || '');
+    const branchId = req.user.role === 'ADMIN' ? String(req.body?.branchId || '') : String(req.user.branchId || '');
     const branch = CARE_BRANCH_MAP[branchId]; if (!branch) return res.status(400).json({ success: false, message: 'Cơ sở không hợp lệ.' });
     const rows = await parseEmployeeWorkbook(req.body?.fileBase64); if (!rows.length) return res.status(422).json({ success: false, message: 'Excel không có dòng nhân viên hợp lệ.' });
     const store = await getStore(); store.staffMembers = store.staffMembers || [];
@@ -126,11 +126,11 @@ router.patch('/staff/:id', allowPermission('USER.UPDATE'), async (req, res) => {
   if (!found || !staffScope(req.user, found)) return res.status(404).json({ success: false, message: 'Không tìm thấy nhân viên trong cơ sở.' });
   let payload; try { payload = validStaffPayload({ employeeCode: body.employeeCode ?? found.employeeCode, fullName: body.fullName ?? found.fullName }); } catch (e) { return res.status(400).json({ success: false, message: e.message }); }
   if ((store.staffMembers || []).some(x => x.id !== found.id && !x.deleted && x.branchId === found.branchId && String(x.employeeCode).toLowerCase() === payload.employeeCode.toLowerCase())) return res.status(409).json({ success: false, message: 'Mã nhân viên đã tồn tại trong danh sách cơ sở.' });
-  await updateStore(next => { const row = next.staffMembers.find(x => x.id === found.id); Object.assign(row, payload, { updatedBy: req.user.sub, updatedAt: new Date().toISOString() }); });
+  await updateStore(next => { const row = next.staffMembers.find(x => x.id === found.id); Object.assign(row, payload, { active: body.active===undefined ? row.active!==false : body.active!==false, updatedBy: req.user.sub, updatedAt: new Date().toISOString() }); });
   await audit(req.user, 'STAFF_DIRECTORY_UPDATE', 'staff_member', found.id, payload);res.json({ success: true, data: { ...found, ...payload } });
 });
 
-router.delete('/staff/:id', allowPermission('USER.UPDATE'), async (req, res) => {
+router.delete('/staff/:id', allowPermission('USER.DELETE'), async (req, res) => {
   const reason = String(req.body?.reason || '').trim(); if (!reason) return res.status(422).json({ success: false, message: 'Cần nhập lý do xóa nhân viên.' });
   const store = await getStore(); const found = (store.staffMembers || []).find(x => x.id === req.params.id && !x.deleted);
   if (!found || !staffScope(req.user, found)) return res.status(404).json({ success: false, message: 'Không tìm thấy nhân viên trong cơ sở.' });
@@ -138,179 +138,113 @@ router.delete('/staff/:id', allowPermission('USER.UPDATE'), async (req, res) => 
   await audit(req.user, 'STAFF_DIRECTORY_DELETE', 'staff_member', found.id, { reason, employeeCode: found.employeeCode, fullName: found.fullName });res.json({ success: true });
 });
 
-async function areaExists(branchId, areaId) {
-  if (!branchId || !areaId) return false;
-  let page = 1, totalPage = 1;
-  do {
-    const r = await getResidents({ pageIndex: page, pageSize: 100, branchId, status: 1 });
-    if ((r.items || []).some(x => x.areaId === areaId)) return true;
-    totalPage = Number(r.totalPage || 1);
-    page += 1;
-  } while (page <= totalPage && page <= 20);
-  return false;
-}
 
 router.get('/', allowPermission('USER.VIEW'), async (req, res) => {
   const all = await getUsers();
-  const users = (isAdmin(req.user)
+  const scoped = req.user.role === 'ADMIN'
     ? all
-    : all.filter(u => String(u.branchId || '') === String(req.user.branchId || '') && ['CAREGIVER', 'MEDICAL'].includes(u.role))
-  ).map(publicUser);
-
-  res.json({
-    success: true,
-    data: users,
-    meta: {
-      actorRole: req.user.role,
-      branchId: req.user.branchId || null,
-      assignableRoles: assignableRoles(req.user),
-      policyLocked: false,
-    },
-  });
+    : all.filter(u => String(u.branchId || '') === String(req.user.branchId || ''));
+  res.json({ success: true, data: scoped.map(publicUser) });
 });
 
+function validateAccountInput(body, current = null) {
+  const role = String(body.role ?? current?.role ?? '').trim();
+  const username = String(body.username ?? current?.username ?? '').trim();
+  const fullName = String(body.fullName ?? current?.fullName ?? '').trim();
+  const password = body.password === undefined ? undefined : String(body.password || '');
+  if (!VALID_ROLES.has(role)) throw new Error('Vai trò không hợp lệ.');
+  if (!validUsername(username)) throw new Error('Username phải 4–40 ký tự và chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.');
+  if (!fullName) throw new Error('Tên hiển thị là bắt buộc.');
+  if (!current && (!password || password.length < 8)) throw new Error('Mật khẩu tối thiểu 8 ký tự.');
+  if (current && password && password.length < 8) throw new Error('Mật khẩu tối thiểu 8 ký tự.');
+  return { role, username, fullName, password };
+}
 
-router.get('/policy', allowPermission('USER.VIEW'), async (req, res) => {
-  const roles = assignableRoles(req.user);
-  const rolePolicies = {};
-  for (const role of ['ADMIN', 'BRANCH_DIRECTOR', 'MEDICAL', 'CAREGIVER']) {
-    rolePolicies[role] = {
-      defaultPermissions: rolePermissions(role),
-      ceiling: rolePermissionCeiling(role),
-      assignable: roles.includes(role),
-    };
-  }
-  res.json({
-    success: true,
-    data: {
-      groups: PERMISSION_GROUPS,
-      rolePolicies,
-      actorPermissions: normalizePermissions(req.user),
-      actorRole: req.user.role,
-      assignableRoles: roles,
-    },
-  });
-});
+function resolveAccountBranch(role, body, current = null) {
+  if (role === 'ADMIN') return { branchId: null, branchName: 'Toàn hệ thống' };
+  const branchId = String(body.branchId ?? current?.branchId ?? '').trim();
+  const branch = CARE_BRANCH_MAP[branchId];
+  if (!branch) throw new Error('Giám đốc cơ sở và tài khoản CSV bắt buộc phải chọn một cơ sở BCARE hợp lệ.');
+  return { branchId, branchName: branch.name };
+}
+
+function duplicateBranchRole(users, role, branchId, excludeId = null) {
+  if (!['BRANCH_DIRECTOR', 'CARE_SHARED'].includes(role)) return false;
+  return users.some(u => u.id !== excludeId && u.active !== false && u.role === role && String(u.branchId || '') === String(branchId || ''));
+}
 
 router.post('/', allowPermission('USER.CREATE'), async (req, res) => {
-  const users = await getUsers();
-  const body = req.body || {};
-  const role = body.role;
-  const username = String(body.username || '').trim();
-  const password = String(body.password || '');
-  const fullName = String(body.fullName || '').trim();
-  const employeeCode = String(body.employeeCode || '').trim();
-
-  if (!validUsername(username)) {
-    return res.status(400).json({ success: false, message: 'Username phải 4–40 ký tự và chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.' });
-  }
-  if (password.length < 8) return res.status(400).json({ success: false, message: 'Mật khẩu tối thiểu 8 ký tự.' });
-  if (!fullName) return res.status(400).json({ success: false, message: 'Họ tên là bắt buộc.' });
-  if (!VALID_ROLES.has(role)) return res.status(400).json({ success: false, message: 'Vai trò không hợp lệ.' });
-  if (!validEmployeeCode(employeeCode)) return res.status(400).json({ success: false, message: 'Mã nhân viên là bắt buộc, tối đa 30 ký tự và chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.' });
-  if (!assignableRoles(req.user).includes(role)) return res.status(403).json({ success: false, message: 'Bạn không được tạo vai trò này trong phạm vi hiện tại.' });
-  if (users.some(u => String(u.username).toLowerCase() === username.toLowerCase())) return res.status(409).json({ success: false, message: 'Username đã tồn tại.' });
-
-  let branchId = null, branchName = 'Toàn hệ thống', areaId = null, areaName = '';
-  if (role !== 'ADMIN') {
-    branchId = effectiveBranchId(req.user, body.branchId || '');
-    const branch = CARE_BRANCH_MAP[branchId];
-    if (!branch) return res.status(400).json({ success: false, message: 'Cơ sở không hợp lệ. Phải chọn từ danh mục BCARE.' });
-    branchName = branch.name;
-  }
-  if (role === 'CAREGIVER') {
-    areaId = String(body.areaId || '');
-    if (!areaId) return res.status(400).json({ success: false, message: 'Chăm sóc viên phải được gán khu phụ trách.' });
-    try {
-      const ok = await areaExists(branchId, areaId);
-      if (!ok) return res.status(400).json({ success: false, message: 'Khu không thuộc cơ sở đã chọn hoặc không tồn tại trong dữ liệu BCARE.' });
-      areaName = String(body.areaName || '');
-    } catch (e) {
-      return res.status(502).json({ success: false, message: `Không xác minh được khu từ BCARE: ${e.message}` });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được tạo tài khoản đăng nhập.' });
+  try {
+    const users = await getUsers();
+    const body = req.body || {};
+    const { role, username, fullName, password } = validateAccountInput(body);
+    if (users.some(u => String(u.username).toLowerCase() === username.toLowerCase())) {
+      return res.status(409).json({ success: false, message: 'Username đã tồn tại.' });
     }
+    const { branchId, branchName } = resolveAccountBranch(role, body);
+    if (duplicateBranchRole(users, role, branchId)) {
+      const label = role === 'BRANCH_DIRECTOR' ? 'Giám đốc cơ sở' : 'tài khoản CSV dùng chung';
+      return res.status(409).json({ success: false, message: `Cơ sở này đã có ${label} đang hoạt động.` });
+    }
+    const permissions = role === 'ADMIN' ? [] : sanitizePermissions(body.permissions, role);
+    const user = {
+      id: uuid(), username, password, employeeCode: null, fullName, role,
+      branchId, branchName, areaId: null, areaName: '', permissions, active: true,
+    };
+    users.push(user);
+    await saveUsers(users);
+    await audit(req.user, 'USER_CREATE', 'user', user.id, { username, role, branchId, permissions });
+    res.status(201).json({ success: true, data: publicUser(user) });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
   }
-
-  const fullAccess = role === 'ADMIN';
-  const requestedPermissions = Array.isArray(body.permissions) ? body.permissions : rolePermissions(role);
-  const permissions = role === 'ADMIN' ? ['*'] : assignablePermissions(req.user, role, requestedPermissions);
-  if (users.some(u => u.branchId === branchId && String(u.employeeCode || '').toLowerCase() === employeeCode.toLowerCase())) return res.status(409).json({ success: false, message: 'Mã nhân viên đã tồn tại trong cơ sở.' });
-  const user = { id: uuid(), username, password, employeeCode, fullName, role, branchId, branchName, areaId, areaName, fullAccess, permissions, active: true };
-  users.push(user);
-  await saveUsers(users);
-  await audit(req.user, 'USER_CREATE', 'user', user.id, { username: user.username, role: user.role, branchId, areaId, permissions: user.permissions });
-  res.status(201).json({ success: true, data: publicUser(user) });
 });
 
 router.patch('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
-  const users = await getUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ success: false, message: 'Không tìm thấy user' });
-  const body = req.body || {};
-  const current = users[idx];
-  if (!canManageUser(req.user, current)) return res.status(403).json({ success: false, message: 'Bạn không có quyền sửa tài khoản này.' });
-  const nextRole = body.role || current.role;
-  if (!VALID_ROLES.has(nextRole)) return res.status(400).json({ success: false, message: 'Vai trò không hợp lệ.' });
-  if (!assignableRoles(req.user).includes(nextRole) && nextRole !== current.role) return res.status(403).json({ success: false, message: 'Bạn không được gán vai trò này.' });
-  if ('password' in body && body.password !== '' && String(body.password).length < 8) return res.status(400).json({ success: false, message: 'Mật khẩu tối thiểu 8 ký tự.' });
-
-  const next = { ...current };
-  if ('fullName' in body) next.fullName = String(body.fullName || '').trim();
-  if (!next.fullName) return res.status(400).json({ success: false, message: 'Họ tên là bắt buộc.' });
-  if ('employeeCode' in body) next.employeeCode = String(body.employeeCode || '').trim();
-  if (!validEmployeeCode(next.employeeCode || next.username)) return res.status(400).json({ success: false, message: 'Mã nhân viên không hợp lệ.' });
-  if (body.password) next.password = String(body.password);
-  next.role = nextRole;
-  next.fullAccess = nextRole === 'ADMIN';
-  const requestedPermissions = Array.isArray(body.permissions)
-    ? body.permissions
-    : (nextRole === current.role && Array.isArray(current.permissions) ? current.permissions : rolePermissions(nextRole));
-  next.permissions = nextRole === 'ADMIN' ? ['*'] : assignablePermissions(req.user, nextRole, requestedPermissions);
-
-  if (nextRole === 'ADMIN') {
-    next.branchId = null;
-    next.branchName = 'Toàn hệ thống';
-    next.areaId = null;
-    next.areaName = '';
-  } else {
-    const branchId = effectiveBranchId(req.user, body.branchId ?? current.branchId ?? '');
-    const branch = CARE_BRANCH_MAP[branchId];
-    if (!branch) return res.status(400).json({ success: false, message: 'Cơ sở không hợp lệ.' });
-    next.branchId = branchId;
-    next.branchName = branch.name;
-    next.areaId = null;
-    next.areaName = '';
-    if (nextRole === 'CAREGIVER') {
-      const areaId = String(body.areaId ?? current.areaId ?? '');
-      if (!areaId) return res.status(400).json({ success: false, message: 'Chăm sóc viên phải được gán khu phụ trách.' });
-      try {
-        if (!await areaExists(branchId, areaId)) return res.status(400).json({ success: false, message: 'Khu không thuộc cơ sở đã chọn.' });
-      } catch (e) {
-        return res.status(502).json({ success: false, message: `Không xác minh được khu từ BCARE: ${e.message}` });
-      }
-      next.areaId = areaId;
-      next.areaName = String(body.areaName ?? current.areaName ?? '');
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được sửa tài khoản đăng nhập.' });
+  try {
+    const users = await getUsers();
+    const idx = users.findIndex(u => String(u.id) === String(req.params.id));
+    if (idx < 0) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
+    const current = users[idx];
+    const body = req.body || {};
+    const { role, username, fullName, password } = validateAccountInput(body, current);
+    if (users.some(u => u.id !== current.id && String(u.username).toLowerCase() === username.toLowerCase())) {
+      return res.status(409).json({ success: false, message: 'Username đã tồn tại.' });
     }
+    const { branchId, branchName } = resolveAccountBranch(role, body, current);
+    if (duplicateBranchRole(users, role, branchId, current.id)) {
+      const label = role === 'BRANCH_DIRECTOR' ? 'Giám đốc cơ sở' : 'tài khoản CSV dùng chung';
+      return res.status(409).json({ success: false, message: `Cơ sở này đã có ${label} đang hoạt động.` });
+    }
+    const next = {
+      ...current,
+      username,
+      fullName,
+      role,
+      branchId,
+      branchName,
+      areaId: null,
+      areaName: '',
+      employeeCode: null,
+      permissions: role === 'ADMIN' ? [] : sanitizePermissions(body.permissions, role),
+    };
+    if (password) next.password = password;
+    users[idx] = next;
+    await saveUsers(users);
+    await audit(req.user, 'USER_UPDATE', 'user', next.id, { username, role, branchId, permissions: next.permissions });
+    res.json({ success: true, data: publicUser(next) });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
   }
-
-  if (users.some(u => u.id !== current.id && u.branchId === next.branchId && String(u.employeeCode || '').toLowerCase() === String(next.employeeCode || next.username).toLowerCase())) return res.status(409).json({ success: false, message: 'Mã nhân viên đã tồn tại trong cơ sở.' });
-  next.employeeCode = next.employeeCode || next.username;
-
-  if (current.id === req.user.sub && current.role === 'ADMIN' && next.role !== 'ADMIN') {
-    return res.status(422).json({ success: false, message: 'Admin đang đăng nhập không được tự hạ vai trò của chính mình.' });
-  }
-
-  users[idx] = next;
-  await saveUsers(users);
-  await audit(req.user, 'USER_UPDATE', 'user', next.id, { username: next.username, role: next.role, permissions: next.permissions, fullAccess: next.fullAccess });
-  res.json({ success: true, data: publicUser(next) });
 });
 
-// DELETE /:id = khóa tài khoản (soft-disable), giữ lịch sử/audit.
 router.delete('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được khóa tài khoản.' });
   const users = await getUsers();
-  const user = users.find(u => u.id === req.params.id);
-  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user' });
-  if (!canManageUser(req.user, user)) return res.status(403).json({ success: false, message: 'Bạn chỉ được khóa nhân sự thuộc cơ sở mình.' });
+  const user = users.find(u => String(u.id) === String(req.params.id));
+  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
   if (user.id === req.user.sub) return res.status(422).json({ success: false, message: 'Không thể tự khóa tài khoản đang đăng nhập.' });
   user.active = false;
   user.deactivatedAt = new Date().toISOString();
@@ -321,10 +255,13 @@ router.delete('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
 });
 
 router.post('/:id/activate', allowPermission('USER.UPDATE'), async (req, res) => {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được mở khóa tài khoản.' });
   const users = await getUsers();
-  const user = users.find(u => u.id === req.params.id);
-  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user' });
-  if (!canManageUser(req.user, user)) return res.status(403).json({ success: false, message: 'Bạn chỉ được mở khóa nhân sự thuộc cơ sở mình.' });
+  const user = users.find(u => String(u.id) === String(req.params.id));
+  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
+  if (duplicateBranchRole(users, user.role, user.branchId, user.id)) {
+    return res.status(409).json({ success: false, message: 'Cơ sở đã có tài khoản cùng vai trò đang hoạt động.' });
+  }
   user.active = true;
   delete user.deactivatedAt;
   delete user.deactivatedBy;
@@ -333,28 +270,21 @@ router.post('/:id/activate', allowPermission('USER.UPDATE'), async (req, res) =>
   res.json({ success: true, data: publicUser(user) });
 });
 
-// Xóa vĩnh viễn chỉ dành cho bản DEMO: bắt buộc tài khoản đã khóa + nhập lại username.
 router.delete('/:id/permanent', allowPermission('USER.DELETE'), async (req, res) => {
-  if (!isAdmin(req.user)) return res.status(403).json({ success: false, message: 'Chỉ Admin được xóa tài khoản vĩnh viễn.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được xóa vĩnh viễn tài khoản.' });
   const users = await getUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ success: false, message: 'Không tìm thấy user' });
+  const idx = users.findIndex(u => String(u.id) === String(req.params.id));
+  if (idx < 0) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
   const user = users[idx];
-  if (!canManageUser(req.user, user)) return res.status(403).json({ success: false, message: 'Bạn chỉ được xóa nhân sự thuộc cơ sở mình.' });
   if (user.id === req.user.sub) return res.status(422).json({ success: false, message: 'Không thể tự xóa tài khoản đang đăng nhập.' });
   if (user.active) return res.status(422).json({ success: false, message: 'Phải khóa tài khoản trước khi xóa vĩnh viễn.' });
-  if (req.body?.confirmUsername !== user.username) return res.status(422).json({ success: false, message: 'Xác nhận username không khớp.' });
-
-  if (user.role === 'ADMIN') {
-    const activeAdmins = users.filter(u => u.role === 'ADMIN' && u.active);
-    if (activeAdmins.length < 1) return res.status(422).json({ success: false, message: 'Không thể xóa vì hệ thống phải còn ít nhất một Admin hoạt động.' });
+  if (String(req.body?.confirmUsername || '') !== user.username) return res.status(422).json({ success: false, message: 'Xác nhận username không khớp.' });
+  if (user.role === 'ADMIN' && users.filter(u => u.role === 'ADMIN' && u.active !== false && u.id !== user.id).length < 1) {
+    return res.status(422).json({ success: false, message: 'Hệ thống phải còn ít nhất một Admin hoạt động.' });
   }
-
   users.splice(idx, 1);
   await saveUsers(users);
-  await audit(req.user, 'USER_DELETE_PERMANENT', 'user', user.id, {
-    username: user.username, role: user.role, branchId: user.branchId, areaId: user.areaId
-  });
+  await audit(req.user, 'USER_DELETE_PERMANENT', 'user', user.id, { username: user.username, role: user.role, branchId: user.branchId });
   res.json({ success: true });
 });
 

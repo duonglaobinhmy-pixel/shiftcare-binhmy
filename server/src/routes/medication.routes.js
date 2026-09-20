@@ -8,9 +8,8 @@ const router = Router();
 router.use(authenticate);
 
 function visible(user, row) {
-  if (user.fullAccess || user.role === 'ADMIN') return true;
+  if (user.role === 'ADMIN') return true;
   if (row.branchId && row.branchId !== user.branchId) return false;
-  if (user.role === 'CAREGIVER' && user.areaId && row.areaId && row.areaId !== user.areaId) return false;
   return true;
 }
 

@@ -5,25 +5,26 @@ export const PERMISSION_GROUPS = Object.freeze([
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
   { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
   { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
-  { module: 'AI_REPORT', label: 'AI báo cáo', actions: ['VIEW'] },
   { module: 'AUDIT', label: 'Nhật ký hệ thống', actions: ['VIEW'] },
-  { module: 'USER', label: 'Tài khoản', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
+  { module: 'USER', label: 'Tài khoản & nhân sự', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'SYSTEM', label: 'Kết nối hệ thống', actions: ['VIEW', 'UPDATE'] },
 ]);
 
 export const ALL_PERMISSIONS = Object.freeze(
-  PERMISSION_GROUPS.flatMap(group =>
-    group.actions.map(action => `${group.module}.${action}`)
-  )
+  PERMISSION_GROUPS.flatMap(group => group.actions.map(action => `${group.module}.${action}`))
 );
 
-/*
- * DEFAULT = quyền khởi tạo khi tạo tài khoản mới.
- * Đây KHÔNG phải quyền cố định. Admin có thể tick/bỏ tick trong giới hạn CEILING.
+/**
+ * Chỉ còn 3 loại tài khoản đăng nhập:
+ * - ADMIN: toàn hệ thống.
+ * - BRANCH_DIRECTOR: tài khoản giám đốc của một cơ sở.
+ * - CARE_SHARED: tài khoản chăm sóc dùng chung tại một cơ sở/iPad.
+ *
+ * ROLE_CAPS là TRẦN quyền. Admin chỉ được tick quyền nằm trong trần này.
+ * Quyền thực tế của Director / CARE_SHARED lấy từ user_permissions.
  */
-export const DEFAULT_PERMISSIONS = Object.freeze({
+export const ROLE_CAPS = Object.freeze({
   ADMIN: ['*'],
-
   BRANCH_DIRECTOR: [
     'DASHBOARD.VIEW',
     'SHIFT.VIEW', 'SHIFT.CREATE', 'SHIFT.UPDATE',
@@ -31,130 +32,54 @@ export const DEFAULT_PERMISSIONS = Object.freeze({
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
-    'AI_REPORT.VIEW',
     'AUDIT.VIEW',
-    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE',
+    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
-
-  MEDICAL: [
-    'DASHBOARD.VIEW',
+  CARE_SHARED: [
     'SHIFT.VIEW',
-    'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
+    'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
-    'REPORT.VIEW',
-  ],
-
-  CAREGIVER: [
-    'SHIFT.VIEW',
-    'CARE.VIEW',
-    'CARE.CREATE',
+    'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
   ],
 });
 
-/*
- * CEILING = trần quyền tuyệt đối theo vai trò.
- * Checkbox chỉ có thể chọn quyền nằm trong trần này.
- *
- * BRANCH_DIRECTOR có thể được Admin cấp thêm DELETE trong phạm vi cơ sở,
- * nhưng KHÔNG bao giờ được HANDOVER.OVERRIDE, USER.DELETE hoặc SYSTEM.UPDATE.
- */
-export const ROLE_PERMISSION_CEILING = Object.freeze({
+export const DEFAULT_PERMISSIONS = Object.freeze({
   ADMIN: ['*'],
-
   BRANCH_DIRECTOR: [
     'DASHBOARD.VIEW',
-    'SHIFT.VIEW', 'SHIFT.CREATE', 'SHIFT.UPDATE', 'SHIFT.DELETE',
-    'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE', 'CARE.DELETE',
-    'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER', 'MEDICAL.DELETE',
-    'REPORT.VIEW', 'REPORT.EXPORT',
-    'AI_REPORT.VIEW',
-    'AUDIT.VIEW',
-    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE',
-    'SYSTEM.VIEW',
-  ],
-
-  MEDICAL: [
-    'DASHBOARD.VIEW',
-    'SHIFT.VIEW',
+    'SHIFT.VIEW', 'SHIFT.CREATE', 'SHIFT.UPDATE',
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
-    'REPORT.VIEW',
+    'REPORT.VIEW', 'REPORT.EXPORT',
+    'AUDIT.VIEW',
+    'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
+    'SYSTEM.VIEW',
   ],
-
-  CAREGIVER: [
+  CARE_SHARED: [
     'SHIFT.VIEW',
-    'CARE.VIEW',
-    'CARE.CREATE',
+    'CARE.VIEW', 'CARE.CREATE',
+    'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
+    'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
   ],
 });
 
-export function rolePermissions(role) {
-  return [...(DEFAULT_PERMISSIONS[role] || [])];
-}
-
-export function rolePermissionCeiling(role) {
-  return [...(ROLE_PERMISSION_CEILING[role] || [])];
-}
-
-export function sanitizeRolePermissions(role, requested, { fallbackToDefault = true } = {}) {
+export function sanitizePermissions(value, role) {
   if (role === 'ADMIN') return ['*'];
-
-  const ceiling = new Set(rolePermissionCeiling(role));
-
-  if (!Array.isArray(requested)) {
-    return fallbackToDefault ? rolePermissions(role) : [];
-  }
-
-  return [...new Set(
-    requested
-      .map(x => String(x || '').trim())
-      .filter(Boolean)
-      .filter(permission => ceiling.has(permission))
-  )];
+  const cap = new Set(ROLE_CAPS[role] || []);
+  const source = Array.isArray(value) ? value : (DEFAULT_PERMISSIONS[role] || []);
+  return [...new Set(source.filter(item => typeof item === 'string' && ALL_PERMISSIONS.includes(item) && cap.has(item)))];
 }
 
-/*
- * Runtime phải dùng permissions đã lưu nếu field tồn tại.
- * - tài khoản mới: permissions được ghi rõ từ form tick.
- * - tài khoản legacy không có field: dùng default.
- * - [] là hợp lệ và có nghĩa không có quyền module nào.
- */
 export function normalizePermissions(user = {}) {
   if (user.role === 'ADMIN') return ['*'];
-
-  if (Array.isArray(user.permissions)) {
-    return sanitizeRolePermissions(user.role, user.permissions, { fallbackToDefault: false });
-  }
-
-  return rolePermissions(user.role);
+  return sanitizePermissions(user.permissions, user.role);
 }
 
 export function hasPermission(user, permission) {
   if (!user || !permission) return false;
   if (user.role === 'ADMIN') return true;
   const permissions = normalizePermissions(user);
-  return permissions.includes('*') || permissions.includes(permission);
-}
-
-/*
- * Quyền người quản trị được phép gán cho target.
- * Admin: trong ceiling của target.
- * Director: chỉ quản lý MEDICAL/CAREGIVER và không thể cấp quyền mà chính mình không có.
- */
-export function assignablePermissions(actor, targetRole, requested) {
-  if (targetRole === 'ADMIN') return actor?.role === 'ADMIN' ? ['*'] : [];
-
-  const clean = sanitizeRolePermissions(targetRole, requested);
-  if (actor?.role === 'ADMIN') return clean;
-
-  if (actor?.role === 'BRANCH_DIRECTOR' && ['MEDICAL', 'CAREGIVER'].includes(targetRole)) {
-    const actorPermissions = new Set(normalizePermissions(actor));
-    return clean.filter(permission => actorPermissions.has(permission));
-  }
-
-  return [];
+  return permissions.includes(permission);
 }

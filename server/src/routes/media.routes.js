@@ -15,7 +15,6 @@ router.use(authenticate);
 function canRead(user, row) {
   if (user.role === 'ADMIN') return true;
   if (row.branch_id && String(row.branch_id) !== String(user.branchId || '')) return false;
-  if (user.role === 'CAREGIVER' && user.areaId && row.area_id_snapshot && String(row.area_id_snapshot) !== String(user.areaId)) return false;
   return true;
 }
 

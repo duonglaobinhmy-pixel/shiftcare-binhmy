@@ -4,10 +4,10 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function Residents(){
-  const {user}=useAuth(); const navigate=useNavigate();
+  const {user,can}=useAuth(); const navigate=useNavigate();
   const [page,setPage]=useState(1),[pageSize,setPageSize]=useState(20),[branchId,setBranchId]=useState(user.branchId||''),[areaId,setAreaId]=useState(user.areaId||''),[roomId,setRoomId]=useState(''),[q,setQ]=useState('');
   const [branches,setBranches]=useState([]),[locations,setLocations]=useState({areas:[],rooms:[]}),[data,setData]=useState({items:[],totalItem:0,totalPage:1}),[loading,setLoading]=useState(false),[err,setErr]=useState(''),[opening,setOpening]=useState('');
-  const canWrite=user.role==='ADMIN'||user.role==='CAREGIVER';
+  const canWrite=can('CARE.CREATE');
   async function loadResidents(next=page){setLoading(true);setErr('');try{const r=await api.residents({pageIndex:next,pageSize,branchId,areaId,roomId,query:q,religionId:'',status:1});setData(r.data);setPage(next)}catch(e){setErr(e.message)}finally{setLoading(false)}}
   async function loadLocations(id){if(!id){setLocations({areas:[],rooms:[]});return}try{setLocations((await api.locations(id)).data)}catch(e){setErr(e.message)}}
   useEffect(()=>{api.branches().then(r=>setBranches(r.data||[])).catch(()=>{});loadResidents(1);if(branchId)loadLocations(branchId)},[]);

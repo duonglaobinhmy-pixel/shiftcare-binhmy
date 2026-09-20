@@ -698,8 +698,7 @@
           "MEDICAL.STOP",
           "MEDICAL.ADMINISTER",
           "MEDICAL.DELETE"
-        ],
-        "fullAccess": false
+        ]
       },
       "occurredAt": "2026-09-18T09:51:32.129Z"
     },
@@ -852,8 +851,7 @@
           "CARE.CREATE",
           "CARE.UPDATE",
           "CARE.DELETE"
-        ],
-        "fullAccess": false
+        ]
       },
       "occurredAt": "2026-09-18T09:20:28.310Z"
     },
@@ -891,8 +889,7 @@
           "CARE.CREATE",
           "CARE.UPDATE",
           "CARE.DELETE"
-        ],
-        "fullAccess": false
+        ]
       },
       "occurredAt": "2026-09-18T09:20:17.150Z"
     },
@@ -955,8 +952,7 @@
           "USER.UPDATE",
           "USER.DELETE",
           "SYSTEM.VIEW"
-        ],
-        "fullAccess": false
+        ]
       },
       "occurredAt": "2026-09-18T09:19:33.822Z"
     },
@@ -971,7 +967,7 @@
       "objectId": "U003",
       "detail": {
         "username": "csv.cuchi",
-        "role": "CAREGIVER",
+        "role": "STAFF",
         "branchId": "6eb4adfd-05f4-43fc-ce79-08da760073f1",
         "areaId": "12e04228-b9c0-4bad-fd35-08da80c2c327"
       },
@@ -1250,7 +1246,7 @@
       "id": "b5fd27df-a884-42a1-824c-bc9bb0f2c765",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "AI_CHAT",
       "objectType": "ai_chat",
@@ -1308,7 +1304,7 @@
       "id": "547db6ea-1055-4982-9ff7-c41d66d91b90",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "AI_CHAT",
       "objectType": "ai_chat",
@@ -1323,7 +1319,7 @@
       "id": "193f0805-2703-4e0f-9f7b-b22070dd2454",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "AI_CHAT",
       "objectType": "ai_chat",
@@ -1338,7 +1334,7 @@
       "id": "ae7758ee-fd03-4ac1-b866-893ea113d6d0",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "CHANGE_UPDATE",
       "objectType": "change_log",
@@ -1352,7 +1348,7 @@
       "id": "b883f6a0-b965-4ea2-8d8f-78452cb9ea6f",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "CHANGE_UPDATE",
       "objectType": "change_log",
@@ -1366,7 +1362,7 @@
       "id": "2e94111e-9c9b-4ae6-bbde-83b6b5c9bbdb",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "CHANGE_CREATE",
       "objectType": "change_log",
@@ -1382,7 +1378,7 @@
       "id": "90da7734-0d69-4f93-8346-d8ed6fe356bf",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "CHANGE_UPDATE",
       "objectType": "change_log",
@@ -1396,7 +1392,7 @@
       "id": "e35479f3-59d3-45ce-bfd2-7af2fac4abf5",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "CHANGE_CREATE",
       "objectType": "change_log",
@@ -1412,7 +1408,7 @@
       "id": "8c06f108-d146-45cc-8425-e23fa50b93c5",
       "actorId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "actorName": "Đinh Thị Chiều Chinh",
-      "role": "CAREGIVER",
+      "role": "STAFF",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "action": "SHIFT_AUTO_CREATE",
       "objectType": "shift",
@@ -1434,7 +1430,7 @@
       "objectId": "c484a678-5d71-489c-8d44-d59e9f6ab784",
       "detail": {
         "username": "csv.nt",
-        "role": "CAREGIVER",
+        "role": "STAFF",
         "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
         "areaId": "89987ecd-5358-4073-598f-08dd589e514b"
       },

@@ -1,23 +1,20 @@
 import jwt from 'jsonwebtoken';
 import { getUsers } from '../services/store.service.js';
 import { normalizePermissions, hasPermission } from '../config/permissions.js';
-import { scopeLabel } from '../config/access.js';
 
 const SECRET = process.env.JWT_SECRET || 'demo-secret';
 
-export function safeIdentity(user) {
+function safeIdentity(user) {
   return {
     sub: user.id,
     username: user.username,
     fullName: user.fullName,
     role: user.role,
-    fullAccess: user.role === 'ADMIN',
     permissions: normalizePermissions(user),
     branchId: user.branchId || null,
     branchName: user.branchName || null,
     areaId: user.areaId || null,
     areaName: user.areaName || null,
-    scopeLabel: scopeLabel(user),
   };
 }
 
@@ -28,48 +25,26 @@ export function signUser(user) {
 export async function authenticate(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
-  }
+  if (!token) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
 
   try {
     const decoded = jwt.verify(token, SECRET);
     const users = await getUsers();
-    const current = users.find(x => x.id === decoded.sub && x.active !== false);
-
-    if (!current) {
-      return res.status(401).json({
-        success: false,
-        message: 'Tài khoản đã bị khóa hoặc không còn tồn tại',
-      });
-    }
-
+    const current = users.find(x => String(x.id) === String(decoded.sub) && x.active !== false);
+    if (!current) return res.status(401).json({ success: false, message: 'Tài khoản đã bị khóa hoặc không còn tồn tại' });
     req.user = { ...decoded, ...safeIdentity(current) };
     next();
   } catch {
-    return res.status(401).json({
-      success: false,
-      message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn',
-    });
+    return res.status(401).json({ success: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn' });
   }
 }
 
 export function allowPermission(...permissions) {
   return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
+    if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
+    if (!permissions.some(permission => hasPermission(req.user, permission))) {
+      return res.status(403).json({ success: false, message: 'Không có quyền thực hiện chức năng này', requiredPermissions: permissions });
     }
-
-    const allowed = permissions.some(permission => hasPermission(req.user, permission));
-    if (!allowed) {
-      return res.status(403).json({
-        success: false,
-        message: 'Không có quyền thực hiện chức năng này',
-        requiredPermissions: permissions,
-      });
-    }
-
     next();
   };
 }
