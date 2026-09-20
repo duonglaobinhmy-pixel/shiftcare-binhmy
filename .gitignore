@@ -1,23 +1,37 @@
-# dependencies
+# Dependencies
 node_modules/
-client/node_modules/
-server/node_modules/
+**/node_modules/
 
-# environment
+# Build
+dist/
+**/dist/
+build/
+**/build/
+
+# Environment
 .env
 .env.*
-client/.env
-server/.env
+!.env.example
 
-# build
-client/dist/
-server/dist/
-
-# mac
+# macOS
 .DS_Store
+**/.DS_Store
 
-# logs
+# Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Vite
+.vite/
+**/.vite/
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary
+*.tmp
+*.temp
+.cache/
