@@ -70,7 +70,7 @@ export default function ShiftDetail(){
   const canWrite=can('CARE.CREATE'),canUpdate=can('CARE.UPDATE'),canDelete=can('CARE.DELETE'),canSign=can('HANDOVER.SIGN'),canReceive=can('HANDOVER.RECEIVE'),isAdmin=user.role==='ADMIN';
   const [d,setD]=useState(null),[sel,setSel]=useState(null),[form,setForm]=useState(freshForm()),[preview,setPreview]=useState(null),[review,setReview]=useState(null),[voiceReview,setVoiceReview]=useState(null),[resolveTarget,setResolveTarget]=useState(null),[resolveNote,setResolveNote]=useState(''),[resolveBusy,setResolveBusy]=useState(false),[listening,setListening]=useState(false),[voiceProcessing,setVoiceProcessing]=useState(false),[voiceLiveStatus,setVoiceLiveStatus]=useState(''),[imageBusy,setImageBusy]=useState(false),[err,setErr]=useState(''),[q,setQ]=useState(''),[saveBusy,setSaveBusy]=useState(false),[signature,setSignature]=useState({password:'',note:'',confirm:false,participantIds:[]}),[receiveSig,setReceiveSig]=useState({password:'',confirm:false});
 
-  const recognitionRef=useRef(null),speechTimerRef=useRef(null),speechRestartRef=useRef(null),speechShouldRunRef=useRef(false),voiceBufferRef=useRef(''),voiceFinalRef=useRef(''),voiceInterimRef=useRef(''),voiceBaseRef=useRef(''),voiceConfidenceRef=useRef(0),voiceFailedRef=useRef(false),voiceCompletedRef=useRef(true),mediaRecorderRef=useRef(null),mediaStreamRef=useRef(null),audioChunksRef=useRef([]),mediaActiveRef=useRef(false),voiceSessionRef=useRef(0);
+  const recognitionRef=useRef(null),speechTimerRef=useRef(null),speechRestartRef=useRef(null),speechShouldRunRef=useRef(false),voiceBufferRef=useRef(''),voiceFinalRef=useRef(''),voiceInterimRef=useRef(''),voiceBaseRef=useRef(''),voiceConfidenceRef=useRef(0),voiceFailedRef=useRef(false),voiceCompletedRef=useRef(true),mediaRecorderRef=useRef(null),mediaStreamRef=useRef(null),audioChunksRef=useRef([]),mediaActiveRef=useRef(false),voiceSessionRef=useRef(0),voiceModeRef=useRef(''),speechNetworkErrorsRef=useRef(0);
   async function load(){try{setErr('');setD((await api.shift(id)).data)}catch(e){setErr(e.message)}}
   useEffect(()=>{load()},[id]);
   useEffect(()=>()=>{if(speechTimerRef.current)clearTimeout(speechTimerRef.current);if(speechRestartRef.current)clearTimeout(speechRestartRef.current);speechShouldRunRef.current=false;recognitionRef.current?.abort?.();mediaRecorderRef.current&&(mediaRecorderRef.current.onstop=null);try{if(mediaRecorderRef.current?.state!=='inactive')mediaRecorderRef.current?.stop()}catch{}mediaStreamRef.current?.getTracks?.().forEach(track=>track.stop())},[]);
@@ -92,6 +92,16 @@ export default function ShiftDetail(){
     }
     return transcript;
   }
+  function resetVoiceState(){
+    voiceFailedRef.current=false;
+    voiceCompletedRef.current=false;
+    voiceBufferRef.current='';
+    voiceFinalRef.current='';
+    voiceInterimRef.current='';
+    voiceConfidenceRef.current=0;
+    voiceBaseRef.current=form.content.trim();
+    speechNetworkErrorsRef.current=0;
+  }
   function cancelVoice(){
     clearVoiceTimer();
     voiceSessionRef.current+=1;
@@ -99,6 +109,7 @@ export default function ShiftDetail(){
     voiceFailedRef.current=true;
     voiceCompletedRef.current=true;
     mediaActiveRef.current=false;
+    voiceModeRef.current='';
     try{recognitionRef.current?.abort?.()}catch{}
     recognitionRef.current=null;
     if(mediaRecorderRef.current){mediaRecorderRef.current.onstop=null;try{if(mediaRecorderRef.current.state!=='inactive')mediaRecorderRef.current.stop()}catch{}}
@@ -108,96 +119,150 @@ export default function ShiftDetail(){
     setVoiceProcessing(false);
     setVoiceLiveStatus('');
   }
+  function openVoiceReview(transcript,source='browser',confidence=0){
+    const value=String(transcript||'').trim();
+    if(!value){setErr('Không thu được nội dung giọng nói. Kiểm tra micro rồi thử lại.');return}
+    voiceBufferRef.current=value;
+    voiceFailedRef.current=false;
+    voiceCompletedRef.current=true;
+    setForm(current=>({...current,content:[voiceBaseRef.current,value].filter(Boolean).join('\n')}));
+    setVoiceReview({transcript:value,chosenText:value,cleanedText:'',cleaning:true,confidence,source,baseContent:voiceBaseRef.current,parsed:parseVoiceVitals(value)});
+    api.cleanTranscript(value)
+      .then(result=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:result.data.cleaned||value,cleaning:false,cleanMode:result.data.mode,cleanWarning:result.data.warning||''}:current))
+      .catch(error=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:value,cleaning:false,cleanWarning:error.message}:current));
+  }
   function finishVoiceReview(source='browser'){
     if(mediaActiveRef.current||voiceCompletedRef.current)return;
-    voiceCompletedRef.current=true;
     speechShouldRunRef.current=false;
     clearVoiceTimer();
     recognitionRef.current=null;
     setListening(false);
     const transcript=voiceBufferRef.current.trim();
-    if(transcript&&!voiceFailedRef.current){
-      setForm(current=>({...current,content:[voiceBaseRef.current,transcript].filter(Boolean).join('\n')}));
-      setVoiceReview({transcript,chosenText:transcript,cleanedText:'',cleaning:true,confidence:voiceConfidenceRef.current,source,baseContent:voiceBaseRef.current,parsed:parseVoiceVitals(transcript)});
-      api.cleanTranscript(transcript).then(result=>setVoiceReview(current=>current?.transcript===transcript?{...current,cleanedText:result.data.cleaned||transcript,cleaning:false,cleanMode:result.data.mode,cleanWarning:result.data.warning||''}:current)).catch(error=>setVoiceReview(current=>current?.transcript===transcript?{...current,cleanedText:transcript,cleaning:false,cleanWarning:error.message}:current));
-    }else if(!voiceFailedRef.current)setErr('Không thu được nội dung. Hãy kiểm tra quyền micro rồi thử lại.');
+    if(transcript&&!voiceFailedRef.current)openVoiceReview(transcript,source,voiceConfidenceRef.current);
+    else if(!voiceFailedRef.current)setErr('Không thu được nội dung. Hãy kiểm tra quyền micro rồi thử lại.');
   }
   function blobToBase64(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob)})}
+  function preferredAudioMime(){
+    const choices=['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+    return choices.find(type=>window.MediaRecorder?.isTypeSupported?.(type))||'';
+  }
+  async function startRecorderFallback(sessionId){
+    if(sessionId!==voiceSessionRef.current)return;
+    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){
+      setListening(false);setErr('Trình duyệt này không hỗ trợ ghi âm dự phòng. Hãy dùng Chrome mới hoặc Safari/iPadOS mới trên HTTPS.');return;
+    }
+    try{
+      speechShouldRunRef.current=false;
+      try{recognitionRef.current?.abort?.()}catch{}
+      recognitionRef.current=null;
+      setVoiceLiveStatus('Đang mở micro để ghi âm dự phòng…');
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      if(sessionId!==voiceSessionRef.current){stream.getTracks().forEach(t=>t.stop());return}
+      mediaStreamRef.current=stream;
+      audioChunksRef.current=[];
+      const mimeType=preferredAudioMime();
+      const recorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
+      mediaRecorderRef.current=recorder;
+      voiceModeRef.current='recorder';
+      mediaActiveRef.current=true;
+      voiceCompletedRef.current=false;
+      setListening(true);
+      setVoiceLiveStatus('Đang ghi âm dự phòng. Bấm Dừng khi nói xong…');
+      recorder.ondataavailable=e=>{if(e.data&&e.data.size>0)audioChunksRef.current.push(e.data)};
+      recorder.onerror=e=>{console.error('[VOICE] MediaRecorder error',e);setErr('Không ghi được âm thanh từ micro. Kiểm tra quyền micro của trình duyệt.');};
+      recorder.onstop=async()=>{
+        mediaActiveRef.current=false;
+        stopMediaTracks();
+        const chunks=[...audioChunksRef.current];audioChunksRef.current=[];
+        if(sessionId!==voiceSessionRef.current||voiceFailedRef.current)return;
+        const blob=new Blob(chunks,{type:recorder.mimeType||mimeType||'audio/webm'});
+        if(blob.size<100){setVoiceProcessing(false);setErr('Đoạn ghi âm quá ngắn. Hãy thử lại và nói gần micro hơn.');return}
+        setVoiceProcessing(true);setVoiceLiveStatus('Đang chép lời đoạn ghi âm…');
+        try{
+          const audioBase64=await blobToBase64(blob);
+          const response=await api.transcribeAudio(audioBase64,blob.type||'audio/webm');
+          const transcript=String(response?.data?.transcript||'').trim();
+          setVoiceProcessing(false);setVoiceLiveStatus('');setListening(false);
+          openVoiceReview(transcript,'audio-fallback',0);
+        }catch(error){
+          setVoiceProcessing(false);setVoiceLiveStatus('');setListening(false);
+          setErr(error.message||'Không thể chép lời đoạn ghi âm. Nếu Gemini đang bị chặn, cấu hình STT_API_URL hoặc dùng Chrome SpeechRecognition.');
+        }
+      };
+      recorder.start(500);
+      clearVoiceTimer();
+      speechTimerRef.current=setTimeout(stopVoice,30000);
+    }catch(error){
+      stopMediaTracks();mediaActiveRef.current=false;setListening(false);setVoiceProcessing(false);
+      if(error?.name==='NotAllowedError'||error?.name==='SecurityError')setErr('Chưa cấp quyền Microphone. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, sau đó tải lại trang.');
+      else setErr(`Không mở được micro: ${error?.message||error}`);
+    }
+  }
   function stopVoice(){
     clearVoiceTimer();
     speechShouldRunRef.current=false;
+    setListening(false);
+    if(voiceModeRef.current==='recorder'){
+      setVoiceLiveStatus('Đang hoàn tất đoạn ghi âm…');
+      try{if(mediaRecorderRef.current?.state&&mediaRecorderRef.current.state!=='inactive')mediaRecorderRef.current.stop();else{mediaActiveRef.current=false;stopMediaTracks()}}catch{mediaActiveRef.current=false;stopMediaTracks()}
+      return;
+    }
     mediaActiveRef.current=false;
     setVoiceLiveStatus('Đang hoàn tất bản chép lời…');
-    setListening(false);
     try{recognitionRef.current?.stop?.()}catch{}
-    setTimeout(()=>{
-      renderVoiceTranscript();
-      finishVoiceReview('browser-speech');
-      setVoiceLiveStatus('');
-    },500);
+    setTimeout(()=>{renderVoiceTranscript();finishVoiceReview('browser-speech');setVoiceLiveStatus('')},500);
   }
   function beginBrowserRecognition(sessionId){
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SpeechRecognition){
-      setVoiceLiveStatus('Đang ghi âm. Trình duyệt này không có SpeechRecognition; khi dừng sẽ thử dịch vụ AI dự phòng.');
-      return;
-    }
+    if(!SpeechRecognition){startRecorderFallback(sessionId);return}
     if(!speechShouldRunRef.current||sessionId!==voiceSessionRef.current)return;
     const recognition=new SpeechRecognition();
-    recognition.lang='vi-VN';
-    recognition.interimResults=true;
-    // false + tự nối lại ổn định hơn trên Chrome/macOS; tránh giữ session speech quá lâu.
-    recognition.continuous=false;
-    recognition.maxAlternatives=1;
-    recognitionRef.current=recognition;
-    recognition.onstart=()=>{
-      console.log('[VOICE] SpeechRecognition started');
-      setVoiceLiveStatus('Đang nghe. Lời nói sẽ hiện trực tiếp trong ô Nội dung…');
-    };
+    recognition.lang='vi-VN';recognition.interimResults=true;recognition.continuous=false;recognition.maxAlternatives=1;
+    recognitionRef.current=recognition;voiceModeRef.current='browser';
+    recognition.onstart=()=>{setVoiceLiveStatus('Đang nghe. Lời nói sẽ hiện trực tiếp trong ô Nội dung…')};
     recognition.onresult=e=>{
-      let finalAdded='';
-      let interim='';
+      let finalAdded='',interim='';
       for(let i=e.resultIndex;i<e.results.length;i++){
-        const alt=e.results[i]?.[0];
-        const part=String(alt?.transcript||'').trim();
-        if(!part)continue;
-        if(e.results[i].isFinal)finalAdded+=`${part} `;
-        else interim+=`${part} `;
+        const alt=e.results[i]?.[0],part=String(alt?.transcript||'').trim();if(!part)continue;
+        if(e.results[i].isFinal)finalAdded+=`${part} `;else interim+=`${part} `;
         if(Number.isFinite(alt?.confidence)&&alt.confidence>0)voiceConfidenceRef.current=Math.max(voiceConfidenceRef.current,alt.confidence);
       }
       if(finalAdded)voiceFinalRef.current=`${voiceFinalRef.current} ${finalAdded}`.replace(/\s+/g,' ').trim();
       voiceInterimRef.current=interim.replace(/\s+/g,' ').trim();
       const transcript=renderVoiceTranscript();
-      console.log('[VOICE] transcript', {final:voiceFinalRef.current,interim:voiceInterimRef.current,transcript});
-      if(transcript)setVoiceLiveStatus('Đã nhận giọng nói và đang cập nhật trực tiếp. Tiếp tục nói…');
+      if(transcript)setVoiceLiveStatus('Đã nhận giọng nói. Tiếp tục nói hoặc bấm Dừng…');
     };
     recognition.onerror=e=>{
-      console.warn('[VOICE] SpeechRecognition error',e.error,e.message||'');
       if(e.error==='aborted')return;
       if(e.error==='not-allowed'||e.error==='service-not-allowed'){
-        speechShouldRunRef.current=false;
-        voiceFailedRef.current=true;
-        mediaActiveRef.current=false;
-        setListening(false);
-        setErr('Chrome không được phép dùng nhận dạng giọng nói. Bấm biểu tượng ổ khóa cạnh địa chỉ → Microphone: Allow, sau đó tải lại trang.');
-        return;
+        speechShouldRunRef.current=false;voiceFailedRef.current=true;mediaActiveRef.current=false;setListening(false);
+        setErr('Trình duyệt chưa được quyền nhận giọng nói/micro. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, rồi tải lại trang.');return;
       }
-      if(e.error==='no-speech')setVoiceLiveStatus('Chưa nghe rõ lời nói. Hãy nói gần micro hơn, hệ thống sẽ tự nghe lại…');
-      else if(e.error==='audio-capture'){voiceFailedRef.current=true;mediaActiveRef.current=false;setListening(false);setErr('Chrome không lấy được âm thanh từ micro. Kiểm tra micro đang chọn trong Chrome và macOS.');}
-      else if(e.error==='network'){setVoiceLiveStatus('Dịch vụ nhận dạng giọng nói của Chrome đang lỗi mạng. Hệ thống sẽ tự thử lại…');}
-      else setVoiceLiveStatus(`Nhận dạng trực tiếp tạm gián đoạn (${e.error||'unknown'}). Đang tự nối lại…`);
+      if(e.error==='audio-capture'){
+        speechShouldRunRef.current=false;voiceFailedRef.current=true;mediaActiveRef.current=false;setListening(false);setErr('Không lấy được âm thanh từ micro. Kiểm tra micro đang chọn trong trình duyệt và macOS/iPadOS.');return;
+      }
+      if(e.error==='network'){
+        speechNetworkErrorsRef.current+=1;
+        if(speechNetworkErrorsRef.current>=2&&!voiceBufferRef.current){
+          speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setVoiceLiveStatus('Nhận dạng trực tiếp lỗi mạng; chuyển sang ghi âm dự phòng…');
+          setTimeout(()=>startRecorderFallback(sessionId),250);return;
+        }
+        setVoiceLiveStatus('Dịch vụ nhận dạng trực tiếp đang lỗi mạng, hệ thống thử lại…');return;
+      }
+      if(e.error==='no-speech')setVoiceLiveStatus('Chưa nghe rõ. Hãy nói gần micro hơn, hệ thống sẽ tự nghe lại…');
+      else setVoiceLiveStatus(`Nhận dạng tạm gián đoạn (${e.error||'unknown'}), đang thử lại…`);
     };
     recognition.onend=()=>{
-      console.log('[VOICE] SpeechRecognition ended', {shouldRestart:speechShouldRunRef.current,mediaActive:mediaActiveRef.current});
       if(recognitionRef.current===recognition)recognitionRef.current=null;
-      if(speechShouldRunRef.current&&mediaActiveRef.current&&sessionId===voiceSessionRef.current){
+      if(speechShouldRunRef.current&&mediaActiveRef.current&&voiceModeRef.current==='browser'&&sessionId===voiceSessionRef.current){
         speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),250);
       }
     };
     try{recognition.start()}catch(error){
-      console.warn('[VOICE] SpeechRecognition start failed',error);
       recognitionRef.current=null;
-      if(speechShouldRunRef.current&&mediaActiveRef.current)speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),500);
+      speechNetworkErrorsRef.current+=1;
+      if(speechNetworkErrorsRef.current>=2&&!voiceBufferRef.current){speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setTimeout(()=>startRecorderFallback(sessionId),250)}
+      else if(speechShouldRunRef.current&&mediaActiveRef.current)speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),500);
     }
   }
   function closeEntry(){cancelVoice();setVoiceReview(null);setReview(null);setSel(null)}
@@ -205,37 +270,26 @@ export default function ShiftDetail(){
   async function startVoice(){
     if(listening){stopVoice();return}
     if(!window.isSecureContext&&location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'){
-      setErr('Micro chỉ hoạt động trên HTTPS hoặc localhost. Hãy mở bằng http://localhost:5173 hoặc cấu hình HTTPS.');
-      return;
+      setErr('Micro chỉ hoạt động trên HTTPS hoặc localhost.');return;
     }
+    cancelVoice();setErr('');resetVoiceState();
+    const sessionId=voiceSessionRef.current+1;voiceSessionRef.current=sessionId;
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SpeechRecognition){
-      setErr('Trình duyệt này không hỗ trợ nhận dạng giọng nói trực tiếp. Hãy dùng Google Chrome mới trên localhost/HTTPS. Gemini audio đang bị project từ chối nên không dùng làm fallback.');
+    if(!SpeechRecognition){await startRecorderFallback(sessionId);return}
+    try{
+      setVoiceLiveStatus('Đang kiểm tra quyền micro…');
+      if(navigator.mediaDevices?.getUserMedia){
+        const probe=await navigator.mediaDevices.getUserMedia({audio:true});probe.getTracks().forEach(t=>t.stop());
+      }
+    }catch(error){
+      if(error?.name==='NotAllowedError'||error?.name==='SecurityError')setErr('Chưa cấp quyền Microphone. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, rồi tải lại trang.');
+      else setErr(`Không mở được micro: ${error?.message||error}`);
       return;
     }
-
-    cancelVoice();
-    setErr('');
-    setVoiceLiveStatus('Đang mở nhận dạng giọng nói…');
-    voiceFailedRef.current=false;
-    voiceCompletedRef.current=false;
-    voiceBufferRef.current='';
-    voiceFinalRef.current='';
-    voiceInterimRef.current='';
-    voiceConfidenceRef.current=0;
-    voiceBaseRef.current=form.content.trim();
-
-    const sessionId=voiceSessionRef.current+1;
-    voiceSessionRef.current=sessionId;
-
-    // QUAN TRỌNG: không mở MediaRecorder cùng lúc với SpeechRecognition.
-    // Trên Chrome/macOS việc giữ cùng lúc 2 nguồn đọc micro có thể làm SpeechRecognition
-    // "started" nhưng không phát sinh onresult. Đây chính là triệu chứng log đã gặp.
-    mediaActiveRef.current=true;
-    speechShouldRunRef.current=true;
-    setListening(true);
-    beginBrowserRecognition(sessionId);
-    speechTimerRef.current=setTimeout(stopVoice,30000);
+    if(sessionId!==voiceSessionRef.current)return;
+    mediaActiveRef.current=true;speechShouldRunRef.current=true;voiceModeRef.current='browser';setListening(true);
+    setVoiceLiveStatus('Đang mở nhận dạng giọng nói…');beginBrowserRecognition(sessionId);
+    clearVoiceTimer();speechTimerRef.current=setTimeout(stopVoice,30000);
   }
   function chooseVoiceText(text){if(!voiceReview)return;setVoiceReview({...voiceReview,chosenText:text,parsed:parseVoiceVitals(text)});setForm(current=>({...current,content:[voiceReview.baseContent,text].filter(Boolean).join('\n')}))}
   function applyVoice(){if(!voiceReview)return;const parsed=voiceReview.parsed;setForm(current=>({...current,...Object.fromEntries(Object.entries(parsed).filter(([,v])=>v!=='')),content:[voiceReview.baseContent,voiceReview.chosenText||voiceReview.transcript].filter(Boolean).join('\n')}));setVoiceReview(null)}

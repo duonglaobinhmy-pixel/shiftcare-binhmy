@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
-import { answerAI, cleanTranscriptAI, transcribeAudioAI } from '../services/ai.service.js';
+import { answerAI, cleanTranscriptAI, transcribeAudioAI, getAIStatus } from '../services/ai.service.js';
 import { audit } from '../services/audit.service.js';
 
 const router=Router();
 router.use(authenticate);
+
+router.get('/status',(req,res)=>{
+  res.json({success:true,data:getAIStatus()});
+});
 
 function normalizeMessage(value){
   if(typeof value==='string')return value.trim();
@@ -42,7 +46,12 @@ router.post('/transcribe-audio',async(req,res,next)=>{
     const data=await transcribeAudioAI(audioBase64,mimeType);
     await audit(req.user,'AI_AUDIO_TRANSCRIBE','ai_audio',null,{mode:data.mode,model:data.model,mimeType:data.mimeType,sizeBytes:data.sizeBytes});
     res.json({success:true,data});
-  }catch(error){next(error)}
+  }catch(error){
+    if(Number(error?.status)===503){
+      return res.status(503).json({success:false,message:error.message,code:'STT_UNAVAILABLE'});
+    }
+    next(error);
+  }
 });
 
 export default router;

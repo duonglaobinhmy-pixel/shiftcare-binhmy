@@ -11,7 +11,7 @@ const MENU_ITEMS=[
   // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
   {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
-  // {to:'/audit',label:'Audit',permission:'AUDIT.VIEW',icon:'◎'},
+  // c
   {to:'/users',label:'Tài khoản',permission:'USER.VIEW',icon:'♟'},
   // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
 ];

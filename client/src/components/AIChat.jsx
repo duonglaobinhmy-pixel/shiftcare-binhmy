@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
 const QUICK=[
@@ -13,6 +13,12 @@ export default function AIChat(){
   const [text,setText]=useState('');
   const [rows,setRows]=useState([{role:'assistant',content:'Chào bạn. Tôi chỉ đọc dữ liệu trong phạm vi tài khoản và không tự sửa hồ sơ.'}]);
   const [busy,setBusy]=useState(false);
+  const [status,setStatus]=useState(null);
+
+  useEffect(()=>{
+    if(!open)return;
+    api.aiStatus().then(r=>setStatus(r?.data||null)).catch(()=>setStatus(null));
+  },[open]);
 
   async function ask(input=text){
     const q=String(input||'').trim();
@@ -43,7 +49,7 @@ export default function AIChat(){
     <button className="ai-fab" onClick={()=>setOpen(value=>!value)}>AI</button>
     {open&&<div className="ai-panel">
       <div className="ai-head">
-        <div><b>Trợ lý ShiftCare</b><small>Read-only • theo quyền tài khoản</small></div>
+        <div><b>Trợ lý ShiftCare</b><small>Read-only • theo quyền tài khoản</small>{status&&<small>{status.geminiAvailable?'Gemini: sẵn sàng':'AI ngoài: không khả dụng • đang dùng phân tích nội bộ'}</small>}</div>
         <button className="secondary" onClick={()=>setOpen(false)}>×</button>
       </div>
       <div className="ai-quick">{QUICK.map(q=><button className="secondary" key={q} disabled={busy} onClick={()=>ask(q)}>{q}</button>)}</div>
@@ -52,7 +58,7 @@ export default function AIChat(){
           <div>{m.content}</div>
           {m.sources?.length>0&&<small>Nguồn: {m.sources.slice(0,5).map(s=>s.label||s.type).join(' • ')}</small>}
           {m.mode&&<small>{m.mode==='gemini'?'Gemini':m.mode==='local-fallback'?'Phân tích nội bộ (AI ngoài đang lỗi)':'Phân tích nội bộ'}</small>}
-          {m.warning&&<small>{m.warning}</small>}
+          {m.warning&&<small>{m.mode==='local-fallback'?'Đang dùng phân tích nội bộ; AI ngoài hiện không khả dụng.':m.warning}</small>}
         </div>)}
         {busy&&<div className="ai-msg assistant">Đang phân tích dữ liệu…</div>}
       </div>

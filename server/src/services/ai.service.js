@@ -65,7 +65,26 @@ function isAccessDenied(error){return /project has been denied access|permission
 
 // Nếu Gemini trả 403/project denied, ghi nhớ trong process hiện tại để chatbot không chờ lỗi lặp lại.
 let geminiBlockedReason='';
-function markGeminiBlocked(error){if(isAccessDenied(error))geminiBlockedReason=String(error?.message||'Gemini access denied')}
+function markGeminiBlocked(error){
+  if(isAccessDenied(error))geminiBlockedReason=String(error?.message||'Gemini access denied');
+}
+function publicGeminiWarning(){
+  return geminiBlockedReason
+    ? 'Gemini ngoài đang bị Google từ chối quyền truy cập; hệ thống đã tự chuyển sang chế độ nội bộ.'
+    : '';
+}
+export function getAIStatus(){
+  const geminiConfigured=Boolean(String(process.env.GEMINI_API_KEY||'').trim());
+  const sttFallbackConfigured=Boolean(String(process.env.STT_API_URL||'').trim());
+  return {
+    geminiConfigured,
+    geminiAvailable:geminiConfigured&&!geminiBlockedReason,
+    geminiBlocked:Boolean(geminiBlockedReason),
+    geminiWarning:publicGeminiWarning(),
+    browserSpeechPreferred:true,
+    sttFallbackConfigured
+  };
+}
 
 async function callGeminiText(key,model,body){
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -89,7 +108,7 @@ export async function answerAI(user,message){
 
   const key=String(process.env.GEMINI_API_KEY||'').trim();
   if(geminiBlockedReason){
-    return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:`Gemini đã bị vô hiệu tạm thời do quyền truy cập: ${geminiBlockedReason}`,sources:sourceRows(context)};
+    return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:publicGeminiWarning(),sources:sourceRows(context)};
   }
   if(!key){
     return {answer:fallbackAnswer(message,context),mode:'local-demo',model:null,warning:'Chưa cấu hình GEMINI_API_KEY; đang dùng phân tích nội bộ.',sources:sourceRows(context)};
@@ -112,7 +131,7 @@ export async function answerAI(user,message){
   }
 
   // Chatbot luôn còn hoạt động ở chế độ nội bộ nếu Gemini/key/quota/model/mạng lỗi.
-  return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:`Gemini tạm không khả dụng: ${String(lastError?.message||'Unknown error')}`,sources:sourceRows(context)};
+  return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:isAccessDenied(lastError)?'Gemini ngoài đang bị Google từ chối quyền truy cập; đang dùng phân tích nội bộ.':`Gemini tạm không khả dụng; đang dùng phân tích nội bộ: ${String(lastError?.message||'Unknown error')}`,sources:sourceRows(context)};
 }
 
 function conservativeTranscript(text){
@@ -134,7 +153,7 @@ export async function cleanTranscriptAI(text){
   const original=String(text||'').trim();
   const local=conservativeTranscript(original);
   const key=String(process.env.GEMINI_API_KEY||'').trim();
-  if(geminiBlockedReason)return{original,cleaned:local,mode:'local-fallback',warning:`Gemini đã bị vô hiệu tạm thời do quyền truy cập: ${geminiBlockedReason}`};
+  if(geminiBlockedReason)return{original,cleaned:local,mode:'local-fallback',warning:publicGeminiWarning()};
   if(!key)return{original,cleaned:local,mode:'local',warning:'Chưa cấu hình GEMINI_API_KEY; chỉ chuẩn hóa khoảng trắng và thuật ngữ kỹ thuật.'};
   const instruction='Bạn chỉ làm sạch bản chép lời tiếng Việt trong phiếu chăm sóc người cao tuổi. ĐƯỢC PHÉP: sửa dấu câu, viết hoa, khoảng trắng, từ nhận dạng sai khi hoàn toàn chắc chắn, chuẩn hóa SpO2/mmHg/độ C. CẤM: thêm hoặc bớt sự kiện, triệu chứng, chẩn đoán, hành động, tên người, thời gian; cấm suy diễn; cấm đổi, thêm hoặc xóa bất kỳ con số nào. Nếu không chắc, giữ nguyên từ gốc. Chỉ trả JSON {"cleaned":"..."}.';
   const body={contents:[{role:'user',parts:[{text:`${instruction}\n\nBẢN GỐC:\n${original}`}]}],generationConfig:{temperature:0,maxOutputTokens:500,responseMimeType:'application/json'}};
@@ -163,16 +182,66 @@ function normalizedAudioMime(mimeType){
   return raw;
 }
 
+function audioExtension(mimeType){
+  if(mimeType==='audio/mp4')return 'm4a';
+  if(mimeType==='audio/ogg')return 'ogg';
+  if(mimeType==='audio/wav')return 'wav';
+  if(mimeType==='audio/mpeg')return 'mp3';
+  return 'webm';
+}
+
+async function transcribeExternalSTT(data,mimeType,size){
+  const url=String(process.env.STT_API_URL||'').trim();
+  if(!url)return null;
+  const key=String(process.env.STT_API_KEY||'').trim();
+  const model=String(process.env.STT_MODEL||'whisper-1').trim();
+  const bytes=Buffer.from(data,'base64');
+  const form=new FormData();
+  form.append('file',new Blob([bytes],{type:mimeType}),`shiftcare-voice.${audioExtension(mimeType)}`);
+  if(model)form.append('model',model);
+  form.append('language','vi');
+  const headers={};
+  if(key)headers.Authorization=`Bearer ${key}`;
+  const response=await fetch(url,{method:'POST',headers,body:form});
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok){
+    const error=new Error(payload?.error?.message||payload?.message||`STT HTTP ${response.status}`);
+    error.status=response.status;
+    throw error;
+  }
+  const transcript=String(payload?.text||payload?.transcript||payload?.data?.text||payload?.data?.transcript||'').trim();
+  if(!transcript)throw new Error('Dịch vụ STT không trả nội dung chép lời.');
+  return {transcript:conservativeTranscript(transcript),mode:'external-stt',model:model||null,mimeType,sizeBytes:size};
+}
+
 export async function transcribeAudioAI(audioBase64,mimeType='audio/webm'){
   const key=String(process.env.GEMINI_API_KEY||'').trim();
-  if(geminiBlockedReason)throw new Error(`Gemini đang bị vô hiệu do quyền truy cập: ${geminiBlockedReason}`);
-  if(!key)throw new Error('Chưa cấu hình GEMINI_API_KEY để chép lời từ file âm thanh.');
   const normalizedMime=normalizedAudioMime(mimeType);
   const allowed=new Set(['audio/webm','audio/mp4','audio/ogg','audio/wav','audio/mpeg']);
   if(!allowed.has(normalizedMime))throw new Error(`Định dạng âm thanh chưa hỗ trợ: ${normalizedMime}`);
   const data=String(audioBase64||'').replace(/^data:[^;]+;base64,/,''),size=Buffer.byteLength(data,'base64');
   if(!data||size<100)throw new Error('Đoạn âm thanh trống hoặc quá ngắn.');
   if(size>6*1024*1024)throw new Error('Đoạn âm thanh vượt quá giới hạn 6 MB.');
+
+  try{
+    const external=await transcribeExternalSTT(data,normalizedMime,size);
+    if(external)return external;
+  }catch(error){
+    console.error('[STT] External provider failed:',error?.message||error);
+    if(!key||geminiBlockedReason){error.status=503;throw error;}
+  }
+
+  if(geminiBlockedReason){
+    const error=new Error('Không có dịch vụ chép lời dự phòng: Gemini đang bị Google từ chối quyền truy cập. Trên Chrome, hãy dùng nhận dạng giọng nói trực tiếp hoặc cấu hình STT_API_URL.');
+    error.status=503;
+    throw error;
+  }
+  if(!key){
+    const error=new Error('Chưa cấu hình dịch vụ chép lời dự phòng. Trên Chrome hệ thống vẫn dùng nhận dạng giọng nói trực tiếp; để chép file âm thanh hãy cấu hình STT_API_URL hoặc GEMINI_API_KEY.');
+    error.status=503;
+    throw error;
+  }
+
   const prompt='Chép nguyên văn lời nói tiếng Việt trong đoạn âm thanh thành một đoạn văn ngắn dùng cho nhật ký chăm sóc người cao tuổi. Giữ nguyên mọi con số, tên riêng, phủ định và mức độ. Không thêm triệu chứng, chẩn đoán, hành động hay thông tin không nghe thấy. Không suy đoán từ bị mất; chỗ không nghe rõ ghi [không nghe rõ]. Chỉ trả lại nội dung chép lời, không markdown, không giải thích. Nếu hoàn toàn không có lời nói, trả EMPTY_AUDIO.';
   let lastError=null;
   for(const model of geminiModelCandidates()){
