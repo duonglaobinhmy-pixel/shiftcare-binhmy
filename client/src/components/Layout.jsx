@@ -8,12 +8,12 @@ import AIChat from './AIChat';
 const MENU_ITEMS=[
   {to:'/',label:'Tổng quan',permission:'DASHBOARD.VIEW',icon:'⌂',end:true},
   {to:'/shifts',label:'Ca chăm sóc',permission:'SHIFT.VIEW',icon:'◷'},
-  {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
+  // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
   {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
-  {to:'/audit',label:'Audit',permission:'AUDIT.VIEW',icon:'◎'},
+  // {to:'/audit',label:'Audit',permission:'AUDIT.VIEW',icon:'◎'},
   {to:'/users',label:'Tài khoản',permission:'USER.VIEW',icon:'♟'},
-  {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
+  // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
 ];
 
 export default function Layout(){
