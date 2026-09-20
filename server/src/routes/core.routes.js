@@ -8,16 +8,12 @@ import { audit } from '../services/audit.service.js';
 import { notifyUrgentCreated,notifyUrgentResolved } from '../services/telegram.service.js';
 import { sanitizeWoundImages } from '../services/media-retention.service.js';
 import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
+import { canViewScopedRow, effectiveBranchId } from '../config/access.js';
 
 const router = Router();
 router.use(authenticate);
 
-function visibleByScope(user,row){
-  if(user.role==='ADMIN') return true;
-  if(row.branchId && row.branchId!==user.branchId) return false;
-  if(user.role==='CAREGIVER' && user.areaId && row.areaId && row.areaId!==user.areaId) return false;
-  return true;
-}
+function visibleByScope(user,row){ return canViewScopedRow(user,row); }
 function canAccessShift(user,shift){
   if(!visibleByScope(user,shift))return false;
   if(user.role!=='CAREGIVER')return true;
@@ -251,7 +247,7 @@ router.post('/shifts/:id/handover/receive',allowPermission('HANDOVER.RECEIVE'),a
 router.post('/shifts/:id/close',allowPermission('SHIFT.UPDATE'),async(req,res)=>{let shift;await updateStore(store=>{shift=store.shifts.find(x=>x.id===req.params.id);if(shift&&visibleByScope(req.user,shift))shift.status='CLOSED'});if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});await audit(req.user,'SHIFT_CLOSE','shift',shift.id);res.json({success:true,data:shift})});
 
 router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
-  const range=reportRange(req.query),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
+  const range=reportRange(req.query),branchId=effectiveBranchId(req.user,req.query.branchId||'');
   const fast=await getReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
   const base=fast?{shifts:fast.shifts,shiftResidents:fast.residents,changeLogs:fast.changes,toiletingLogs:fast.toilets,outstanding:fast.outstanding}:await getStore();
   const shifts=base.shifts.filter(x=>range.inRange(x.shiftDate)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x));
@@ -277,7 +273,7 @@ router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
   res.json({success:true,data:{from:range.from,to:range.to,branchId,shifts:shifts.length,uniqueResidents:residentSummaries.length,changes:changes.length,openRed:outstanding.filter(x=>x.attentionLevel==='RED').length,openYellow:outstanding.filter(x=>x.attentionLevel==='YELLOW').length,resolvedToday:resolvedInRange.length,resolutionRate:attentionInRange.length?Math.round(resolvedInRange.length*100/attentionInRange.length):100,requiresHandover:changes.filter(x=>x.requiresHandover).length,toiletingLogs:toilets.length,toiletingAbnormal:toilets.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length,byCategory,byArea,branchSummaries,shiftDetails,residentSummaries,outstanding,details:[...changes].sort((a,b)=>String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt))),toiletingDetails:[...toilets].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}});
 });
 router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
-  const range=reportRange(req.query),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
+  const range=reportRange(req.query),branchId=effectiveBranchId(req.user,req.query.branchId||'');
   const fast=await getStaffReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
   const store=fast?null:await getStore();
   const shifts=(fast?fast.shifts:store.shifts.filter(x=>range.inRange(x.shiftDate)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x)));
@@ -293,7 +289,7 @@ router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
   res.json({success:true,data:{from:range.from,to:range.to,branchId,calendar,staffDetails,activityChanges:changes.length}});
 });
 router.get('/reports/resident/:residentId',allowPermission('REPORT.VIEW'),async(req,res)=>{
-  const range=reportRange(req.query),residentId=String(req.params.residentId),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
+  const range=reportRange(req.query),residentId=String(req.params.residentId),branchId=effectiveBranchId(req.user,req.query.branchId||'');
   const fast=await getReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
   const s=fast?{shiftResidents:fast.residents,changeLogs:fast.changes,toiletingLogs:fast.toilets}:await getStore();
   const changes=(fast?s.changeLogs:s.changeLogs.filter(x=>!x.deleted&&inEventRange(x.occurredAt||x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x))).filter(x=>String(x.residentId)===residentId).map(withAttention).sort((a,b)=>String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt)));
@@ -303,6 +299,6 @@ router.get('/reports/resident/:residentId',allowPermission('REPORT.VIEW'),async(
   if(!base)return res.status(404).json({success:false,message:'Không có dữ liệu NCT trong khoảng đã chọn'});
   res.json({success:true,data:{from:range.from,to:range.to,resident:{id:residentId,name:base.residentName||base.fullName||'NCT',areaName:base.areaName||'',roomName:base.roomName||'',bedName:base.bedName||''},summary:{changes:changes.length,openRed:changes.filter(x=>x.attentionLevel==='RED'&&x.attentionStatus==='OPEN').length,openYellow:changes.filter(x=>x.attentionLevel==='YELLOW'&&x.attentionStatus==='OPEN').length,resolved:changes.filter(x=>x.attentionStatus==='RESOLVED').length,handover:changes.filter(x=>x.requiresHandover).length,toiletingAbnormal:toileting.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length},changes,toileting}});
 });
-router.get('/audit-logs',allowPermission('AUDIT.VIEW'),async(req,res)=>{const s=await getStore();let rows=s.auditLogs;if(req.user.role!=='ADMIN')rows=rows.filter(x=>!x.branchId||x.branchId===req.user.branchId);res.json({success:true,data:rows.slice(0,300)})});
+router.get('/audit-logs',allowPermission('AUDIT.VIEW'),async(req,res)=>{const s=await getStore();let rows=s.auditLogs;if(req.user.role!=='ADMIN')rows=rows.filter(x=>String(x.branchId||'')===String(req.user.branchId||''));res.json({success:true,data:rows.slice(0,300)})});
 
 export default router;

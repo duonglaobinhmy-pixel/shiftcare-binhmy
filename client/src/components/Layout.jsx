@@ -8,12 +8,12 @@ import AIChat from './AIChat';
 const MENU_ITEMS=[
   {to:'/',label:'Tổng quan',permission:'DASHBOARD.VIEW',icon:'⌂',end:true},
   {to:'/shifts',label:'Ca chăm sóc',permission:'SHIFT.VIEW',icon:'◷'},
-  // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
+  {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.CREATE',icon:'+'},
   {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
-  // c
+  {to:'/audit',label:'Audit',permission:'AUDIT.VIEW',icon:'◎'},
   {to:'/users',label:'Tài khoản',permission:'USER.VIEW',icon:'♟'},
-  // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
+  {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
 ];
 
 export default function Layout(){
@@ -37,7 +37,7 @@ export default function Layout(){
       </nav>
       <div className="sidebar-footer">
         {!collapsed?<>
-          <div className="sidebar-user-info"><strong>{user?.fullName||user?.username||'Người dùng'}</strong><span>{user?.role||''}</span><span>{user?.branchName||'Toàn hệ thống'}</span></div>
+          <div className="sidebar-user-info"><strong>{user?.fullName||user?.username||'Người dùng'}</strong><span>{user?.role||''}</span><span>{user?.scopeLabel||user?.branchName||'Toàn hệ thống'}</span></div>
           <button type="button" className="sidebar-logout" onClick={logout}>Đăng xuất</button>
         </>:<>
           <div className="sidebar-user-avatar" title={user?.fullName||user?.username||'Người dùng'}>{String(user?.fullName||user?.username||'U').trim().charAt(0).toUpperCase()}</div>

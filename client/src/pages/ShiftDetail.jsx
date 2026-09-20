@@ -70,7 +70,7 @@ export default function ShiftDetail(){
   const canWrite=can('CARE.CREATE'),canUpdate=can('CARE.UPDATE'),canDelete=can('CARE.DELETE'),canSign=can('HANDOVER.SIGN'),canReceive=can('HANDOVER.RECEIVE'),isAdmin=user.role==='ADMIN';
   const [d,setD]=useState(null),[sel,setSel]=useState(null),[form,setForm]=useState(freshForm()),[preview,setPreview]=useState(null),[review,setReview]=useState(null),[voiceReview,setVoiceReview]=useState(null),[resolveTarget,setResolveTarget]=useState(null),[resolveNote,setResolveNote]=useState(''),[resolveBusy,setResolveBusy]=useState(false),[listening,setListening]=useState(false),[voiceProcessing,setVoiceProcessing]=useState(false),[voiceLiveStatus,setVoiceLiveStatus]=useState(''),[imageBusy,setImageBusy]=useState(false),[err,setErr]=useState(''),[q,setQ]=useState(''),[saveBusy,setSaveBusy]=useState(false),[signature,setSignature]=useState({password:'',note:'',confirm:false,participantIds:[]}),[receiveSig,setReceiveSig]=useState({password:'',confirm:false});
 
-  const recognitionRef=useRef(null),speechTimerRef=useRef(null),speechRestartRef=useRef(null),speechShouldRunRef=useRef(false),voiceBufferRef=useRef(''),voiceFinalRef=useRef(''),voiceInterimRef=useRef(''),voiceBaseRef=useRef(''),voiceConfidenceRef=useRef(0),voiceFailedRef=useRef(false),voiceCompletedRef=useRef(true),mediaRecorderRef=useRef(null),mediaStreamRef=useRef(null),audioChunksRef=useRef([]),mediaActiveRef=useRef(false),voiceSessionRef=useRef(0),voiceModeRef=useRef(''),speechNetworkErrorsRef=useRef(0);
+  const recognitionRef=useRef(null),speechTimerRef=useRef(null),speechRestartRef=useRef(null),speechShouldRunRef=useRef(false),voiceBufferRef=useRef(''),voiceFinalRef=useRef(''),voiceInterimRef=useRef(''),voiceBaseRef=useRef(''),voiceConfidenceRef=useRef(0),voiceFailedRef=useRef(false),voiceCompletedRef=useRef(true),mediaRecorderRef=useRef(null),mediaStreamRef=useRef(null),audioChunksRef=useRef([]),mediaActiveRef=useRef(false),voiceSessionRef=useRef(0),voiceModeRef=useRef(''),speechNetworkErrorsRef=useRef(0),speechNoResultEndsRef=useRef(0);
   async function load(){try{setErr('');setD((await api.shift(id)).data)}catch(e){setErr(e.message)}}
   useEffect(()=>{load()},[id]);
   useEffect(()=>()=>{if(speechTimerRef.current)clearTimeout(speechTimerRef.current);if(speechRestartRef.current)clearTimeout(speechRestartRef.current);speechShouldRunRef.current=false;recognitionRef.current?.abort?.();mediaRecorderRef.current&&(mediaRecorderRef.current.onstop=null);try{if(mediaRecorderRef.current?.state!=='inactive')mediaRecorderRef.current?.stop()}catch{}mediaStreamRef.current?.getTracks?.().forEach(track=>track.stop())},[]);
@@ -101,6 +101,7 @@ export default function ShiftDetail(){
     voiceConfidenceRef.current=0;
     voiceBaseRef.current=form.content.trim();
     speechNetworkErrorsRef.current=0;
+    speechNoResultEndsRef.current=0;
   }
   function cancelVoice(){
     clearVoiceTimer();
@@ -227,6 +228,7 @@ export default function ShiftDetail(){
         if(e.results[i].isFinal)finalAdded+=`${part} `;else interim+=`${part} `;
         if(Number.isFinite(alt?.confidence)&&alt.confidence>0)voiceConfidenceRef.current=Math.max(voiceConfidenceRef.current,alt.confidence);
       }
+      if(finalAdded||interim)speechNoResultEndsRef.current=0;
       if(finalAdded)voiceFinalRef.current=`${voiceFinalRef.current} ${finalAdded}`.replace(/\s+/g,' ').trim();
       voiceInterimRef.current=interim.replace(/\s+/g,' ').trim();
       const transcript=renderVoiceTranscript();
@@ -243,9 +245,15 @@ export default function ShiftDetail(){
       }
       if(e.error==='network'){
         speechNetworkErrorsRef.current+=1;
-        if(speechNetworkErrorsRef.current>=2&&!voiceBufferRef.current){
-          speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setVoiceLiveStatus('Nhận dạng trực tiếp lỗi mạng; chuyển sang ghi âm dự phòng…');
-          setTimeout(()=>startRecorderFallback(sessionId),250);return;
+        if(speechNetworkErrorsRef.current>=1&&!voiceBufferRef.current){
+          speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setVoiceLiveStatus('Nhận dạng trực tiếp lỗi mạng; đang kiểm tra STT dự phòng…');
+          setTimeout(async()=>{
+            try{
+              const status=await api.aiStatus();
+              if(status?.data?.sttFallbackConfigured||status?.data?.geminiAvailable)startRecorderFallback(sessionId);
+              else{setVoiceLiveStatus('');setErr('Dịch vụ nhận dạng giọng nói của trình duyệt đang lỗi mạng và chưa cấu hình STT dự phòng. Hãy cấu hình STT_API_URL hoặc dùng Chrome có Internet.')}
+            }catch{setVoiceLiveStatus('');setErr('Không kiểm tra được STT dự phòng.')}
+          },150);return;
         }
         setVoiceLiveStatus('Dịch vụ nhận dạng trực tiếp đang lỗi mạng, hệ thống thử lại…');return;
       }
@@ -254,6 +262,26 @@ export default function ShiftDetail(){
     };
     recognition.onend=()=>{
       if(recognitionRef.current===recognition)recognitionRef.current=null;
+      if(!voiceBufferRef.current)speechNoResultEndsRef.current+=1;
+      if(speechShouldRunRef.current&&mediaActiveRef.current&&voiceModeRef.current==='browser'&&sessionId===voiceSessionRef.current&&speechNoResultEndsRef.current>=2&&!voiceBufferRef.current){
+        speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);
+        setVoiceLiveStatus('Trình duyệt không trả bản chép lời; đang kiểm tra ghi âm dự phòng…');
+        setTimeout(async()=>{
+          try{
+            const status=await api.aiStatus();
+            if(status?.data?.sttFallbackConfigured||status?.data?.geminiAvailable){
+              startRecorderFallback(sessionId);
+            }else{
+              setVoiceLiveStatus('');
+              setErr('Micro có thể đã mở nhưng dịch vụ nhận dạng giọng nói của trình duyệt không trả nội dung. Hiện chưa có STT dự phòng. Hãy dùng Chrome có Internet hoặc cấu hình STT_API_URL.');
+            }
+          }catch{
+            setVoiceLiveStatus('');
+            setErr('Không kiểm tra được dịch vụ giọng nói dự phòng.');
+          }
+        },150);
+        return;
+      }
       if(speechShouldRunRef.current&&mediaActiveRef.current&&voiceModeRef.current==='browser'&&sessionId===voiceSessionRef.current){
         speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),250);
       }

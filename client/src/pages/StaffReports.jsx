@@ -1,16 +1,18 @@
 import { useEffect,useMemo,useState } from 'react';
 import { Link,useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date());
 const shiftLabel=t=>t==='MORNING'?'Ca sáng':t==='NIGHT'?'Ca tối':t||'Ca';
 function formatDate(v){if(!v)return'—';return new Date(`${v}T00:00:00`).toLocaleDateString('vi-VN')}
 
 export default function StaffReports(){
+  const { user } = useAuth();
   const [searchParams]=useSearchParams();
   const initial=today();
   const [from,setFrom]=useState(searchParams.get('from')||initial),[to,setTo]=useState(searchParams.get('to')||initial);
-  const [staffD,setStaffD]=useState(null),[branches,setBranches]=useState([]),[branchId,setBranchId]=useState(searchParams.get('branchId')||'');
+  const [staffD,setStaffD]=useState(null),[branches,setBranches]=useState([]),[branchId,setBranchId]=useState(searchParams.get('branchId')||user?.branchId||'');
   const [staffId,setStaffId]=useState(searchParams.get('staffId')||''),[err,setErr]=useState(''),[loading,setLoading]=useState(true);
   const rangeLabel=from===to?formatDate(from):`${formatDate(from)} → ${formatDate(to)}`;
 
@@ -27,7 +29,7 @@ export default function StaffReports(){
 
   return <section>
     <header className="page-head report-page-head"><div><h1>Báo cáo ca nhân viên</h1><p>Lịch ca lọc theo ngày của ca; số ghi nhận lọc theo thời điểm nhân viên thực tế ghi nhận.</p></div><div className="actions report-top-actions"><button className="secondary" onClick={()=>window.print()}>In / PDF</button></div></header>
-    <div className="report-period-panel"><div className="report-period-inputs"><label>Từ ngày<input type="date" value={from} onChange={e=>{setFrom(e.target.value);if(to<e.target.value)setTo(e.target.value)}}/></label><label>Đến ngày<input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)}/></label><label>Cơ sở<select value={branchId} onChange={e=>setBranchId(e.target.value)}><option value="">Tất cả cơ sở</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Nhân viên<select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Tất cả nhân viên</option>{(staffD?.staffDetails||[]).map(x=><option key={x.id} value={x.id}>{x.employeeCode} — {x.fullName}</option>)}</select></label><div className="report-range-summary"><small>Khoảng báo cáo</small><b>{rangeLabel}</b></div></div></div>
+    <div className="report-period-panel"><div className="report-period-inputs"><label>Từ ngày<input type="date" value={from} onChange={e=>{setFrom(e.target.value);if(to<e.target.value)setTo(e.target.value)}}/></label><label>Đến ngày<input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)}/></label><label>Cơ sở<select value={branchId} onChange={e=>setBranchId(e.target.value)} disabled={user?.role!=='ADMIN'}><option value="">{user?.role==='ADMIN'?'Tất cả cơ sở':'Cơ sở của tôi'}</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Nhân viên<select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Tất cả nhân viên</option>{(staffD?.staffDetails||[]).map(x=><option key={x.id} value={x.id}>{x.employeeCode} — {x.fullName}</option>)}</select></label><div className="report-range-summary"><small>Khoảng báo cáo</small><b>{rangeLabel}</b></div></div></div>
     {err&&<div className="error">{err}</div>}
     {loading?<div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải báo cáo nhân viên...</b><small>Đang đối chiếu lịch ca và các ghi nhận thực tế.</small></div></div>:<>
       <div className="report-overview-title"><div><h2>Tổng quan</h2><p>{rangeLabel} · {branchId?(branches.find(b=>String(b.id)===String(branchId))?.name||'Cơ sở đã chọn'):'Tất cả cơ sở'}</p></div><Link className="secondary button-link" to={`/reports?branchId=${encodeURIComponent(branchId)}&from=${from}&to=${to}`}>← Báo cáo biến động</Link></div>

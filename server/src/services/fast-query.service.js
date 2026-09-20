@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { getPool, middlewareSchemaReady, withTransaction } from './db.service.js';
 import { getSignedWoundImageUrl } from './media-storage.service.js';
+import { canViewScopedRow, effectiveAreaId, effectiveBranchId } from '../config/access.js';
 
 const iso = value => value ? new Date(value).toISOString() : null;
 const dateOnly = value => {
@@ -35,10 +36,9 @@ function mapShiftRow(x){
 }
 
 function scopeShift(user,shift){
-  if(user.role!=='ADMIN' && shift.branchId && String(shift.branchId)!==String(user.branchId||''))return false;
-  if(user.role==='CAREGIVER' && user.areaId && shift.areaId && String(shift.areaId)!==String(user.areaId))return false;
+  if(!canViewScopedRow(user,shift)) return false;
   if(user.role==='CAREGIVER' && shift.assignedStaff?.length){
-    return shift.assignedStaff.some(x=>String(x.id)===String(user.sub)||String(x.userId||'')===String(user.sub));
+    return shift.assignedStaff.some(x=>String(x.userId||'')===String(user.sub)||String(x.id||'')===String(user.sub));
   }
   return true;
 }
@@ -107,8 +107,8 @@ function mapToiletRow(x){return{id:x.id,clientRequestId:x.client_request_id||'',
 
 export async function getReportBundleFast(user,{from,to,branchId=''}){
   if(!await ready())return null;
-  const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
-  const areaScope=user.role==='CAREGIVER'&&user.areaId?String(user.areaId):'';
+  const effectiveBranch=effectiveBranchId(user,branchId);
+  const areaScope=effectiveAreaId(user);
   const db=getPool();
 
   const shiftParams=[from,to];
@@ -194,8 +194,8 @@ export async function getDashboardBundleFast(user,date){
 
 export async function getStaffReportBundleFast(user,{from,to,branchId=''}){
   if(!await ready())return null;
-  const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
-  const areaScope=user.role==='CAREGIVER'&&user.areaId?String(user.areaId):'';
+  const effectiveBranch=effectiveBranchId(user,branchId);
+  const areaScope=effectiveAreaId(user);
   const db=getPool();
 
   const shiftParams=[from,to];

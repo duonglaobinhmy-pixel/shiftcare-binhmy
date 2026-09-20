@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const QUICK=[
   'Hôm nay có NCT nào cần chú ý?',
@@ -9,6 +10,7 @@ const QUICK=[
 ];
 
 export default function AIChat(){
+  const { can, user } = useAuth();
   const [open,setOpen]=useState(false);
   const [text,setText]=useState('');
   const [rows,setRows]=useState([{role:'assistant',content:'Chào bạn. Tôi chỉ đọc dữ liệu trong phạm vi tài khoản và không tự sửa hồ sơ.'}]);
@@ -45,11 +47,13 @@ export default function AIChat(){
     }
   }
 
+  if(!can('AI_REPORT.VIEW')) return null;
+
   return <>
     <button className="ai-fab" onClick={()=>setOpen(value=>!value)}>AI</button>
     {open&&<div className="ai-panel">
       <div className="ai-head">
-        <div><b>Trợ lý ShiftCare</b><small>Read-only • theo quyền tài khoản</small>{status&&<small>{status.geminiAvailable?'Gemini: sẵn sàng':'AI ngoài: không khả dụng • đang dùng phân tích nội bộ'}</small>}</div>
+        <div><b>Trợ lý ShiftCare</b><small>Read-only • {user?.scopeLabel||user?.branchName||'theo quyền tài khoản'}</small>{status&&<small>{status.forceLocal?'Phân tích nội bộ: đang bật':status.geminiAvailable?'Gemini: sẵn sàng':'AI ngoài: không khả dụng • phân tích nội bộ vẫn hoạt động'}</small>}</div>
         <button className="secondary" onClick={()=>setOpen(false)}>×</button>
       </div>
       <div className="ai-quick">{QUICK.map(q=><button className="secondary" key={q} disabled={busy} onClick={()=>ask(q)}>{q}</button>)}</div>
@@ -57,7 +61,7 @@ export default function AIChat(){
         {rows.map((m,i)=><div key={i} className={`ai-msg ${m.role}`}>
           <div>{m.content}</div>
           {m.sources?.length>0&&<small>Nguồn: {m.sources.slice(0,5).map(s=>s.label||s.type).join(' • ')}</small>}
-          {m.mode&&<small>{m.mode==='gemini'?'Gemini':m.mode==='local-fallback'?'Phân tích nội bộ (AI ngoài đang lỗi)':'Phân tích nội bộ'}</small>}
+          {m.mode&&<small>{m.mode==='gemini'?'Gemini':m.mode==='local-fallback'?'Phân tích nội bộ (AI ngoài đang lỗi)':m.mode==='local-forced'?'Phân tích nội bộ (bắt buộc)':'Phân tích nội bộ'}</small>}
           {m.warning&&<small>{m.mode==='local-fallback'?'Đang dùng phân tích nội bộ; AI ngoài hiện không khả dụng.':m.warning}</small>}
         </div>)}
         {busy&&<div className="ai-msg assistant">Đang phân tích dữ liệu…</div>}

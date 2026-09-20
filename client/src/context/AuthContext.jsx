@@ -3,18 +3,34 @@ import { api, setToken } from '../services/api';
 
 const AuthContext = createContext(null);
 
-const DEFAULT_PERMISSIONS = {
+const ROLE_DEFAULTS = {
   ADMIN: ['*'],
-  BRANCH_DIRECTOR: ['DASHBOARD.VIEW','SHIFT.VIEW','SHIFT.CREATE','SHIFT.UPDATE','SHIFT.DELETE','CARE.VIEW','HANDOVER.VIEW','REPORT.VIEW','REPORT.EXPORT','AUDIT.VIEW','USER.VIEW','USER.CREATE','USER.UPDATE','USER.DELETE','SYSTEM.VIEW'],
-  MEDICAL: ['DASHBOARD.VIEW','SHIFT.VIEW','CARE.VIEW','CARE.CREATE','CARE.UPDATE','HANDOVER.VIEW','HANDOVER.SIGN','HANDOVER.RECEIVE','MEDICAL.VIEW','MEDICAL.CREATE','MEDICAL.UPDATE','MEDICAL.STOP','MEDICAL.ADMINISTER','REPORT.VIEW'],
-  CAREGIVER: ['DASHBOARD.VIEW','SHIFT.VIEW','CARE.VIEW','CARE.CREATE','CARE.UPDATE','HANDOVER.VIEW','HANDOVER.SIGN','HANDOVER.RECEIVE','MEDICAL.VIEW','MEDICAL.ADMINISTER']
+  BRANCH_DIRECTOR: [
+    'DASHBOARD.VIEW',
+    'SHIFT.VIEW','SHIFT.CREATE','SHIFT.UPDATE',
+    'CARE.VIEW','CARE.CREATE','CARE.UPDATE',
+    'HANDOVER.VIEW','HANDOVER.SIGN','HANDOVER.RECEIVE',
+    'MEDICAL.VIEW','MEDICAL.CREATE','MEDICAL.UPDATE','MEDICAL.STOP','MEDICAL.ADMINISTER',
+    'REPORT.VIEW','REPORT.EXPORT','AI_REPORT.VIEW','AUDIT.VIEW',
+    'USER.VIEW','USER.CREATE','USER.UPDATE','SYSTEM.VIEW'
+  ],
+  MEDICAL: [
+    'DASHBOARD.VIEW','SHIFT.VIEW','CARE.VIEW','CARE.CREATE','CARE.UPDATE',
+    'HANDOVER.VIEW','HANDOVER.SIGN','HANDOVER.RECEIVE',
+    'MEDICAL.VIEW','MEDICAL.CREATE','MEDICAL.UPDATE','MEDICAL.STOP','MEDICAL.ADMINISTER','REPORT.VIEW'
+  ],
+  CAREGIVER: ['SHIFT.VIEW','CARE.VIEW','CARE.CREATE']
 };
 
+export function userPermissions(user) {
+  if (!user) return [];
+  if (user.role === 'ADMIN') return ['*'];
+  if (Array.isArray(user.permissions)) return [...new Set(user.permissions)];
+  return [...(ROLE_DEFAULTS[user.role] || [])];
+}
+
 export function userCan(user, permission) {
-  if (!user) return false;
-  if (user.role === 'ADMIN' && user.fullAccess === true) return true;
-  const explicit = Array.isArray(user.permissions) ? user.permissions : null;
-  const permissions = user.role === 'BRANCH_DIRECTOR' ? [...new Set([...(DEFAULT_PERMISSIONS.BRANCH_DIRECTOR||[]),...(explicit||[])])] : (explicit || DEFAULT_PERMISSIONS[user.role] || []);
+  const permissions = userPermissions(user);
   return permissions.includes('*') || permissions.includes(permission);
 }
 
@@ -34,11 +50,13 @@ export function AuthProvider({ children }) {
   async function login(username, password) {
     setLoading(true);
     try {
-      const r = await api.login({ username, password });
-      setToken(r.token);
-      saveUser(r.user);
-      return r.user;
-    } finally { setLoading(false); }
+      const result = await api.login({ username, password });
+      setToken(result.token);
+      saveUser(result.user);
+      return result.user;
+    } finally {
+      setLoading(false);
+    }
   }
 
   const logout = useCallback(() => {
@@ -48,8 +66,8 @@ export function AuthProvider({ children }) {
 
   const refreshUser = useCallback(async () => {
     if (!localStorage.getItem('shiftcare_token')) return null;
-    const r = await api.me();
-    const next = r.user || r.data || null;
+    const result = await api.me();
+    const next = result.user || result.data || null;
     if (!next) throw new Error('Không đọc được thông tin tài khoản.');
     saveUser(next);
     return next;
@@ -60,7 +78,10 @@ export function AuthProvider({ children }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const can = useCallback(permission => userCan(user, permission), [user]);
-  const value = useMemo(() => ({ user, loading, login, logout, refreshUser, can }), [user, loading, logout, refreshUser, can]);
+  const value = useMemo(
+    () => ({ user, loading, login, logout, refreshUser, can, permissions: userPermissions(user) }),
+    [user, loading, logout, refreshUser, can]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
