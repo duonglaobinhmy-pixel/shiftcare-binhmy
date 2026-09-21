@@ -231,3 +231,60 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
 .resident-vital-history-row strong{font-size:13px;color:#526b62}
 @media(max-width:1200px){.resident-vital-grid{grid-template-columns:repeat(4,minmax(130px,1fr))}}
 @media(max-width:800px){.resident-vital-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.resident-vital-history-row{grid-template-columns:1fr;gap:5px}.resident-vital-card b{font-size:22px}}
+
+/* =========================================================
+   2026-09-21 — iPad / tablet stability patch
+   ========================================================= */
+@media (max-width: 1024px){
+  html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
+  .app-main,.app-content-scroll,main,section{min-width:0;max-width:100%}
+  .app-content-scroll{padding:14px!important}
+  .page-head{gap:12px;align-items:flex-start}
+  .page-head>div:first-child{min-width:0}
+  .page-head h1{font-size:26px;line-height:1.15;overflow-wrap:anywhere}
+  .actions{gap:8px}
+  .stats,.stats-6{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}
+  .stat{min-width:0;padding:14px}
+  .stat b{font-size:25px}
+  .filters,.form-grid,.user-form{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .table-wrap{width:100%;max-width:100%;overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+  .table-wrap table{min-width:720px}
+  th,td{padding:10px 11px}
+  .shift-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(190px,.7fr);align-items:center!important}
+  .shift-toolbar>span:last-child{grid-column:1/-1}
+  .shift-toolbar input{max-width:none!important;min-width:0}
+  .modal{padding:10px!important;align-items:center}
+  .modal-card,.modal-card.wide,.entry-modal{width:min(96vw,900px)!important;max-width:96vw!important;max-height:92dvh!important;margin:0!important}
+  .entry-modal-body,.modal-body{min-width:0!important;overflow-x:hidden!important}
+  .ai-panel{max-width:calc(100vw - 20px)}
+}
+
+@media (max-width: 760px){
+  .app-content-scroll{padding:12px!important}
+  .page-head{flex-direction:column!important}
+  .page-head .actions{width:100%}
+  .page-head .actions button{flex:1 1 auto}
+  .stats,.stats-6{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .filters,.form-grid,.user-form{grid-template-columns:1fr!important}
+  .shift-toolbar{grid-template-columns:1fr!important}
+  .shift-toolbar>span:last-child{grid-column:auto}
+  .table-wrap{border-radius:12px}
+  .table-wrap table{min-width:660px;font-size:14px}
+  .resident{min-width:150px}
+  .resident .avatar{flex:0 0 34px;width:34px;height:34px}
+  .modal-card,.modal-card.wide,.entry-modal{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;max-height:94dvh!important;border-radius:14px!important}
+  .entry-modal .modal-head{padding:16px!important}
+  .entry-modal-body{padding:0 14px 14px!important}
+  .entry-modal-body .form-grid{grid-template-columns:1fr!important}
+  .resident-vital-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .ai-panel{right:6px!important;width:calc(100vw - 12px)!important}
+}
+
+@media (max-width: 560px){
+  .stats,.stats-6{grid-template-columns:1fr 1fr!important}
+  .stat{padding:12px}
+  .stat b{font-size:23px}
+  .page-head h1{font-size:23px}
+  .table-wrap table{min-width:620px}
+  .resident-vital-grid{grid-template-columns:1fr 1fr!important}
+}

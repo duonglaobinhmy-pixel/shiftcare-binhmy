@@ -214,6 +214,50 @@ async function loadApplicationModules() {
 
 
     /* =====================================================
+     * GLOBAL EXPRESS ERROR -> LUÔN TRẢ JSON CHO /api
+     * ===================================================== */
+
+    app.use((error, req, res, _next) => {
+      console.error('[API ERROR]', {
+        method: req.method,
+        url: req.originalUrl,
+        message: error?.message,
+        stack: error?.stack
+      });
+
+      if (res.headersSent) {
+        return;
+      }
+
+      const rawStatus = Number(
+        error?.status ||
+        error?.statusCode ||
+        500
+      );
+
+      const status =
+        rawStatus >= 400 &&
+        rawStatus <= 599
+          ? rawStatus
+          : 500;
+
+      return res.status(status).json({
+        success: false,
+        message:
+          error?.message ||
+          'Lỗi máy chủ',
+        code:
+          error?.code ||
+          'INTERNAL_SERVER_ERROR',
+        detail:
+          process.env.NODE_ENV === 'development'
+            ? String(error?.stack || '')
+            : undefined
+      });
+    });
+
+
+    /* =====================================================
      * PRODUCTION FRONTEND
      * ===================================================== */
 

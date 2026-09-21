@@ -264,6 +264,24 @@ export default function ShiftDetail(){
       setErr(`Không khởi động được nhận dạng giọng nói: ${error?.message||error}`);
     }
   }
+  function closeEntry(){
+    cancelVoice();
+    setVoiceReview(null);
+    setReview(null);
+    setSel(null);
+    setErr('');
+  }
+
+  function openEntry(r,entryMode='QUICK'){
+    if(!canWrite||!r)return;
+    cancelVoice();
+    setSel(r);
+    setForm({...freshForm(),entryMode});
+    setReview(null);
+    setVoiceReview(null);
+    setErr('');
+  }
+
   async function startVoice(){
     if(listening){stopVoice();return}
     setErr('');
