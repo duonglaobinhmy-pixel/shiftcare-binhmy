@@ -103,6 +103,35 @@ export default function ResidentReportDetail() {
     return [...map.entries()];
   }, [timeline]);
 
+  const reportVitalHistory = useMemo(() => {
+    const fromApi = Array.isArray(data?.vitalHistory) ? data.vitalHistory : [];
+    if (fromApi.length) return fromApi;
+
+    // Fallback trực tiếp từ changes. Timeline đang hiển thị được sinh hiệu thì
+    // khối Chỉ số sinh tồn cũng phải hiển thị cùng dữ liệu đó.
+    return (data?.changes || [])
+      .filter(c => {
+        const v = c?.vitals;
+        if (!v) return false;
+        return [
+          v.pulse,
+          v.temperature,
+          v.bpSys,
+          v.bpDia,
+          v.spo2,
+          v.respiratoryRate,
+          v.bloodGlucose,
+          v.insulinDoseUnits
+        ].some(value => value !== null && value !== undefined && value !== '');
+      })
+      .sort((a, b) => String(b.occurredAt || b.createdAt || '').localeCompare(String(a.occurredAt || a.createdAt || '')));
+  }, [data]);
+
+  const latestVitalRecord = useMemo(() => {
+    if (data?.latestVitalRecord?.vitals) return data.latestVitalRecord;
+    return reportVitalHistory[0] || null;
+  }, [data, reportVitalHistory]);
+
   const summary = data?.summary || {};
   const rangeLabel = from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
 
@@ -137,6 +166,64 @@ export default function ResidentReportDetail() {
             <div className="stat success-stat"><b>{summary.resolved || 0}</b><span>Đã xử lý</span></div>
             <div className="stat"><b>{summary.handover || 0}</b><span>Cần bàn giao</span></div>
             <div className="stat"><b>{summary.toiletingAbnormal || 0}</b><span>Tiêu/tiểu lưu ý</span></div>
+          </div>
+
+          <div className="panel resident-vitals-report">
+            <div className="panel-title">
+              <div>
+                <h2>Chỉ số sinh tồn</h2>
+                <p>
+                  {reportVitalHistory.length
+                    ? `${reportVitalHistory.length} lần đo trong khoảng báo cáo.`
+                    : latestVitalRecord
+                      ? 'Không có lần đo mới trong khoảng báo cáo; hiển thị chỉ số gần nhất trước/cuối kỳ.'
+                      : 'Chưa có dữ liệu sinh hiệu.'}
+                </p>
+              </div>
+              {latestVitalRecord && <span>Gần nhất: {formatDateTime(latestVitalRecord.occurredAt || latestVitalRecord.createdAt)}</span>}
+            </div>
+
+            {latestVitalRecord?.vitals ? (
+              <>
+                <div className="resident-vital-grid">
+                  {[
+                    ['Mạch', latestVitalRecord.vitals.pulse, 'lần/phút'],
+                    ['Nhiệt độ', latestVitalRecord.vitals.temperature, '°C'],
+                    ['Huyết áp', (latestVitalRecord.vitals.bpSys != null || latestVitalRecord.vitals.bpDia != null) ? `${latestVitalRecord.vitals.bpSys ?? '—'}/${latestVitalRecord.vitals.bpDia ?? '—'}` : null, 'mmHg'],
+                    ['SpO₂', latestVitalRecord.vitals.spo2, '%'],
+                    ['Nhịp thở', latestVitalRecord.vitals.respiratoryRate, 'lần/phút'],
+                    ['Đường huyết', latestVitalRecord.vitals.bloodGlucose, 'mg/dL'],
+                    ['Insulin', latestVitalRecord.vitals.insulinDoseUnits, 'IU']
+                  ].map(([label, value, unit]) => (
+                    <div className={`resident-vital-card ${value == null ? 'empty' : ''}`} key={label}>
+                      <span>{label}</span>
+                      <b>{value == null ? '—' : value}</b>
+                      <small>{value == null ? 'Chưa ghi nhận' : unit}</small>
+                    </div>
+                  ))}
+                </div>
+
+                {!!reportVitalHistory.length && (
+                  <div className="resident-vital-history">
+                    <h3>Lịch sử đo trong kỳ</h3>
+                    {reportVitalHistory.map(c => {
+                      const values = vitalText(c.vitals);
+                      return (
+                        <div className="resident-vital-history-row" key={c.id}>
+                          <strong>{formatDateTime(c.occurredAt || c.createdAt)}</strong>
+                          <div>{values.length ? values.join(' · ') : 'Không có chỉ số'}</div>
+                          {c.vitals?.alertLevel && c.vitals.alertLevel !== 'NORMAL' && (
+                            <span className={`attention-status ${c.vitals.alertLevel}`}>{c.vitals.alertLevel}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="empty">Chưa có chỉ số sinh tồn của NCT.</div>
+            )}
           </div>
 
           <div className="panel resident-timeline-page">

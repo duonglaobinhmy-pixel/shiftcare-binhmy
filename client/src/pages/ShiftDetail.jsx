@@ -123,8 +123,10 @@ export default function ShiftDetail(){
   const filteredResidents=useMemo(()=>!d?[]:d.residents.filter(r=>!q||`${r.fullName} ${r.code} ${r.roomName} ${r.bedName}`.toLowerCase().includes(q.toLowerCase())),[d,q]);
   const vitalErrors=getVitalErrors(form),vitalAlerts=getVitalAlerts(form),redAlerts=vitalAlerts.filter(x=>x.level==='RED'),yellowAlerts=vitalAlerts.filter(x=>x.level==='YELLOW');
   const recordedIds=new Set([...(d?.changes||[]).map(x=>x.residentId),...(d?.toileting||[]).map(x=>x.residentId)]),coverage=d?.residents?.length?Math.round(recordedIds.size*100/d.residents.length):0,openRedCount=(d?.changes||[]).filter(x=>x.attentionLevel==='RED'&&x.attentionStatus==='OPEN').length,openYellowCount=(d?.changes||[]).filter(x=>x.attentionLevel==='YELLOW'&&x.attentionStatus==='OPEN').length;
-  function clearVoiceTimer(){if(speechTimerRef.current){clearTimeout(speechTimerRef.current);speechTimerRef.current=null}if(speechRestartRef.current){clearTimeout(speechRestartRef.current);speechRestartRef.current=null}}
-  function stopMediaTracks(){mediaStreamRef.current?.getTracks?.().forEach(track=>track.stop());mediaStreamRef.current=null}
+  function clearVoiceTimer(){
+    if(speechTimerRef.current){clearTimeout(speechTimerRef.current);speechTimerRef.current=null}
+    if(speechRestartRef.current){clearTimeout(speechRestartRef.current);speechRestartRef.current=null}
+  }
   function renderVoiceTranscript(finalText=voiceFinalRef.current,interimText=voiceInterimRef.current){
     const transcript=[String(finalText||'').trim(),String(interimText||'').trim()].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
     voiceBufferRef.current=transcript;
@@ -154,191 +156,171 @@ export default function ShiftDetail(){
     voiceModeRef.current='';
     try{recognitionRef.current?.abort?.()}catch{}
     recognitionRef.current=null;
-    if(mediaRecorderRef.current){mediaRecorderRef.current.onstop=null;try{if(mediaRecorderRef.current.state!=='inactive')mediaRecorderRef.current.stop()}catch{}}
-    mediaRecorderRef.current=null;
-    stopMediaTracks();
     setListening(false);
     setVoiceProcessing(false);
     setVoiceLiveStatus('');
   }
-  function openVoiceReview(transcript,source='browser',confidence=0){
+  function openVoiceReview(transcript,source='browser-speech',confidence=0){
     const value=String(transcript||'').trim();
-    if(!value){setErr('Không thu được nội dung giọng nói. Kiểm tra micro rồi thử lại.');return}
+    if(!value){setErr('Không thu được nội dung giọng nói. Kiểm tra quyền micro rồi thử lại.');return}
     voiceBufferRef.current=value;
     voiceFailedRef.current=false;
     voiceCompletedRef.current=true;
     setForm(current=>({...current,content:[voiceBaseRef.current,value].filter(Boolean).join('\n')}));
     setVoiceReview({transcript:value,chosenText:value,cleanedText:'',cleaning:true,confidence,source,baseContent:voiceBaseRef.current,parsed:parseVoiceVitals(value)});
     api.cleanTranscript(value)
-      .then(result=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:result.data.cleaned||value,cleaning:false,cleanMode:result.data.mode,cleanWarning:result.data.warning||''}:current))
-      .catch(error=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:value,cleaning:false,cleanWarning:error.message}:current));
+      .then(result=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:result?.data?.cleaned||value,cleaning:false,cleanMode:result?.data?.mode||'local',cleanWarning:result?.data?.warning||''}:current))
+      .catch(error=>setVoiceReview(current=>current?.transcript===value?{...current,cleanedText:value,cleaning:false,cleanWarning:`Không làm sạch thêm: ${error.message}`}:current));
   }
-  function finishVoiceReview(source='browser'){
-    if(mediaActiveRef.current||voiceCompletedRef.current)return;
+  function finishVoiceReview(source='browser-speech'){
+    if(voiceCompletedRef.current)return;
     speechShouldRunRef.current=false;
+    mediaActiveRef.current=false;
     clearVoiceTimer();
     recognitionRef.current=null;
     setListening(false);
-    const transcript=voiceBufferRef.current.trim();
+    setVoiceProcessing(false);
+    const transcript=renderVoiceTranscript().trim();
     if(transcript&&!voiceFailedRef.current)openVoiceReview(transcript,source,voiceConfidenceRef.current);
-    else if(!voiceFailedRef.current)setErr('Không thu được nội dung. Hãy kiểm tra quyền micro rồi thử lại.');
-  }
-  function blobToBase64(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob)})}
-  function preferredAudioMime(){
-    const choices=['audio/webm;codecs=opus','audio/webm','audio/mp4'];
-    return choices.find(type=>window.MediaRecorder?.isTypeSupported?.(type))||'';
-  }
-  async function startRecorderFallback(sessionId){
-    if(sessionId!==voiceSessionRef.current)return;
-    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){
-      setListening(false);setErr('Trình duyệt này không hỗ trợ ghi âm dự phòng. Hãy dùng Chrome mới hoặc Safari/iPadOS mới trên HTTPS.');return;
-    }
-    try{
-      speechShouldRunRef.current=false;
-      try{recognitionRef.current?.abort?.()}catch{}
-      recognitionRef.current=null;
-      setVoiceLiveStatus('Đang mở micro để ghi âm dự phòng…');
-      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-      if(sessionId!==voiceSessionRef.current){stream.getTracks().forEach(t=>t.stop());return}
-      mediaStreamRef.current=stream;
-      audioChunksRef.current=[];
-      const mimeType=preferredAudioMime();
-      const recorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
-      mediaRecorderRef.current=recorder;
-      voiceModeRef.current='recorder';
-      mediaActiveRef.current=true;
-      voiceCompletedRef.current=false;
-      setListening(true);
-      setVoiceLiveStatus('Đang ghi âm dự phòng. Bấm Dừng khi nói xong…');
-      recorder.ondataavailable=e=>{if(e.data&&e.data.size>0)audioChunksRef.current.push(e.data)};
-      recorder.onerror=e=>{console.error('[VOICE] MediaRecorder error',e);setErr('Không ghi được âm thanh từ micro. Kiểm tra quyền micro của trình duyệt.');};
-      recorder.onstop=async()=>{
-        mediaActiveRef.current=false;
-        stopMediaTracks();
-        const chunks=[...audioChunksRef.current];audioChunksRef.current=[];
-        if(sessionId!==voiceSessionRef.current||voiceFailedRef.current)return;
-        const blob=new Blob(chunks,{type:recorder.mimeType||mimeType||'audio/webm'});
-        if(blob.size<100){setVoiceProcessing(false);setErr('Đoạn ghi âm quá ngắn. Hãy thử lại và nói gần micro hơn.');return}
-        setVoiceProcessing(true);setVoiceLiveStatus('Đang chép lời đoạn ghi âm…');
-        try{
-          const audioBase64=await blobToBase64(blob);
-          const response=await api.transcribeAudio(audioBase64,blob.type||'audio/webm');
-          const transcript=String(response?.data?.transcript||'').trim();
-          setVoiceProcessing(false);setVoiceLiveStatus('');setListening(false);
-          openVoiceReview(transcript,'audio-fallback',0);
-        }catch(error){
-          setVoiceProcessing(false);setVoiceLiveStatus('');setListening(false);
-          setErr(error.message||'Không thể chép lời đoạn ghi âm. Nếu Gemini đang bị chặn, cấu hình STT_API_URL hoặc dùng Chrome SpeechRecognition.');
-        }
-      };
-      recorder.start(500);
-      clearVoiceTimer();
-      speechTimerRef.current=setTimeout(stopVoice,30000);
-    }catch(error){
-      stopMediaTracks();mediaActiveRef.current=false;setListening(false);setVoiceProcessing(false);
-      if(error?.name==='NotAllowedError'||error?.name==='SecurityError')setErr('Chưa cấp quyền Microphone. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, sau đó tải lại trang.');
-      else setErr(`Không mở được micro: ${error?.message||error}`);
-    }
+    else if(!voiceFailedRef.current)setErr('Không thu được nội dung. Hãy nói gần micro hơn rồi thử lại.');
+    setVoiceLiveStatus('');
   }
   function stopVoice(){
+    if(!listening&&!speechShouldRunRef.current)return;
     clearVoiceTimer();
     speechShouldRunRef.current=false;
-    setListening(false);
-    if(voiceModeRef.current==='recorder'){
-      setVoiceLiveStatus('Đang hoàn tất đoạn ghi âm…');
-      try{if(mediaRecorderRef.current?.state&&mediaRecorderRef.current.state!=='inactive')mediaRecorderRef.current.stop();else{mediaActiveRef.current=false;stopMediaTracks()}}catch{mediaActiveRef.current=false;stopMediaTracks()}
-      return;
-    }
     mediaActiveRef.current=false;
+    setListening(false);
     setVoiceLiveStatus('Đang hoàn tất bản chép lời…');
     try{recognitionRef.current?.stop?.()}catch{}
-    setTimeout(()=>{renderVoiceTranscript();finishVoiceReview('browser-speech');setVoiceLiveStatus('')},500);
+    setTimeout(()=>finishVoiceReview('browser-speech'),350);
   }
   function beginBrowserRecognition(sessionId){
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SpeechRecognition){startRecorderFallback(sessionId);return}
+    if(!SpeechRecognition){
+      speechShouldRunRef.current=false;
+      mediaActiveRef.current=false;
+      setListening(false);
+      setErr('Trình duyệt này chưa hỗ trợ nhận dạng giọng nói trực tiếp. Hãy dùng Chrome/Edge mới hoặc Safari/iPadOS hỗ trợ Speech Recognition.');
+      return;
+    }
     if(!speechShouldRunRef.current||sessionId!==voiceSessionRef.current)return;
+
     const recognition=new SpeechRecognition();
-    recognition.lang='vi-VN';recognition.interimResults=true;recognition.continuous=false;recognition.maxAlternatives=1;
-    recognitionRef.current=recognition;voiceModeRef.current='browser';
-    recognition.onstart=()=>{setVoiceLiveStatus('Đang nghe. Lời nói sẽ hiện trực tiếp trong ô Nội dung…')};
-    recognition.onresult=e=>{
+    recognition.lang='vi-VN';
+    recognition.interimResults=true;
+    recognition.continuous=true;
+    recognition.maxAlternatives=1;
+    recognitionRef.current=recognition;
+    voiceModeRef.current='browser';
+
+    recognition.onstart=()=>setVoiceLiveStatus('Đang nghe trực tiếp từ micro…');
+    recognition.onresult=event=>{
       let finalAdded='',interim='';
-      for(let i=e.resultIndex;i<e.results.length;i++){
-        const alt=e.results[i]?.[0],part=String(alt?.transcript||'').trim();if(!part)continue;
-        if(e.results[i].isFinal)finalAdded+=`${part} `;else interim+=`${part} `;
+      for(let i=event.resultIndex;i<event.results.length;i++){
+        const alt=event.results[i]?.[0];
+        const part=String(alt?.transcript||'').trim();
+        if(!part)continue;
+        if(event.results[i].isFinal)finalAdded+=`${part} `;
+        else interim+=`${part} `;
         if(Number.isFinite(alt?.confidence)&&alt.confidence>0)voiceConfidenceRef.current=Math.max(voiceConfidenceRef.current,alt.confidence);
       }
       if(finalAdded)voiceFinalRef.current=`${voiceFinalRef.current} ${finalAdded}`.replace(/\s+/g,' ').trim();
       voiceInterimRef.current=interim.replace(/\s+/g,' ').trim();
       const transcript=renderVoiceTranscript();
-      if(transcript)setVoiceLiveStatus('Đã nhận giọng nói. Tiếp tục nói hoặc bấm Dừng…');
+      if(transcript)setVoiceLiveStatus('Đã nhận giọng nói. Tiếp tục nói hoặc bấm Dừng & kiểm tra.');
     };
-    recognition.onerror=e=>{
-      if(e.error==='aborted')return;
-      if(e.error==='not-allowed'||e.error==='service-not-allowed'){
-        speechShouldRunRef.current=false;voiceFailedRef.current=true;mediaActiveRef.current=false;setListening(false);
-        setErr('Trình duyệt chưa được quyền nhận giọng nói/micro. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, rồi tải lại trang.');return;
+    recognition.onerror=event=>{
+      const code=String(event?.error||'unknown');
+      console.warn('[VOICE]',code);
+      if(code==='aborted')return;
+      if(code==='not-allowed'||code==='service-not-allowed'){
+        voiceFailedRef.current=true;speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);
+        setErr('Microphone hoặc Speech Recognition chưa được cấp quyền. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow rồi tải lại trang.');
+        return;
       }
-      if(e.error==='audio-capture'){
-        speechShouldRunRef.current=false;voiceFailedRef.current=true;mediaActiveRef.current=false;setListening(false);setErr('Không lấy được âm thanh từ micro. Kiểm tra micro đang chọn trong trình duyệt và macOS/iPadOS.');return;
+      if(code==='audio-capture'){
+        voiceFailedRef.current=true;speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);
+        setErr('Không lấy được âm thanh từ micro. Kiểm tra micro đang chọn trong trình duyệt và macOS/iPadOS.');
+        return;
       }
-      if(e.error==='network'){
+      if(code==='network'){
         speechNetworkErrorsRef.current+=1;
-        if(speechNetworkErrorsRef.current>=2&&!voiceBufferRef.current){
-          speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setVoiceLiveStatus('Nhận dạng trực tiếp lỗi mạng; chuyển sang ghi âm dự phòng…');
-          setTimeout(()=>startRecorderFallback(sessionId),250);return;
-        }
-        setVoiceLiveStatus('Dịch vụ nhận dạng trực tiếp đang lỗi mạng, hệ thống thử lại…');return;
+        voiceFailedRef.current=true;speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);
+        setErr('Dịch vụ nhận dạng giọng nói của trình duyệt đang lỗi mạng. Không gửi audio sang Gemini. Kiểm tra Internet rồi thử lại.');
+        return;
       }
-      if(e.error==='no-speech')setVoiceLiveStatus('Chưa nghe rõ. Hãy nói gần micro hơn, hệ thống sẽ tự nghe lại…');
-      else setVoiceLiveStatus(`Nhận dạng tạm gián đoạn (${e.error||'unknown'}), đang thử lại…`);
+      if(code==='no-speech')setVoiceLiveStatus('Chưa nghe thấy lời nói. Hãy nói gần micro hơn…');
+      else setVoiceLiveStatus(`Nhận dạng tạm gián đoạn (${code}).`);
     };
     recognition.onend=()=>{
       if(recognitionRef.current===recognition)recognitionRef.current=null;
-      if(speechShouldRunRef.current&&mediaActiveRef.current&&voiceModeRef.current==='browser'&&sessionId===voiceSessionRef.current){
+      if(speechShouldRunRef.current&&mediaActiveRef.current&&sessionId===voiceSessionRef.current){
         speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),250);
       }
     };
     try{recognition.start()}catch(error){
-      recognitionRef.current=null;
-      speechNetworkErrorsRef.current+=1;
-      if(speechNetworkErrorsRef.current>=2&&!voiceBufferRef.current){speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);setTimeout(()=>startRecorderFallback(sessionId),250)}
-      else if(speechShouldRunRef.current&&mediaActiveRef.current)speechRestartRef.current=setTimeout(()=>beginBrowserRecognition(sessionId),500);
+      voiceFailedRef.current=true;speechShouldRunRef.current=false;mediaActiveRef.current=false;setListening(false);
+      setErr(`Không khởi động được nhận dạng giọng nói: ${error?.message||error}`);
     }
   }
-  function closeEntry(){cancelVoice();setVoiceReview(null);setReview(null);setSel(null)}
-  function openEntry(r,entryMode='QUICK'){if(!canWrite)return;cancelVoice();setSel(r);setForm({...freshForm(),entryMode});setReview(null);setVoiceReview(null);setErr('')}
   async function startVoice(){
     if(listening){stopVoice();return}
-    if(!window.isSecureContext&&location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'){
-      setErr('Micro chỉ hoạt động trên HTTPS hoặc localhost.');return;
-    }
-    cancelVoice();setErr('');resetVoiceState();
-    const sessionId=voiceSessionRef.current+1;voiceSessionRef.current=sessionId;
+    setErr('');
+    setVoiceProcessing(false);
+    resetVoiceState();
+    const sessionId=voiceSessionRef.current+1;
+    voiceSessionRef.current=sessionId;
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SpeechRecognition){await startRecorderFallback(sessionId);return}
+    if(!SpeechRecognition){
+      setErr('Trình duyệt này chưa hỗ trợ Speech Recognition. Không còn fallback qua Gemini audio để tránh lỗi “project denied access”.');
+      return;
+    }
+    if(!window.isSecureContext&&location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'){
+      setErr('Nhập giọng nói cần HTTPS hoặc localhost.');
+      return;
+    }
     try{
       setVoiceLiveStatus('Đang kiểm tra quyền micro…');
       if(navigator.mediaDevices?.getUserMedia){
-        const probe=await navigator.mediaDevices.getUserMedia({audio:true});probe.getTracks().forEach(t=>t.stop());
+        const probe=await navigator.mediaDevices.getUserMedia({audio:true});
+        probe.getTracks().forEach(track=>track.stop());
       }
     }catch(error){
-      if(error?.name==='NotAllowedError'||error?.name==='SecurityError')setErr('Chưa cấp quyền Microphone. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow, rồi tải lại trang.');
+      if(error?.name==='NotAllowedError'||error?.name==='SecurityError')setErr('Chưa cấp quyền Microphone. Bấm biểu tượng cạnh địa chỉ → Microphone: Allow rồi tải lại trang.');
       else setErr(`Không mở được micro: ${error?.message||error}`);
+      setVoiceLiveStatus('');
       return;
     }
     if(sessionId!==voiceSessionRef.current)return;
-    mediaActiveRef.current=true;speechShouldRunRef.current=true;voiceModeRef.current='browser';setListening(true);
-    setVoiceLiveStatus('Đang mở nhận dạng giọng nói…');beginBrowserRecognition(sessionId);
-    clearVoiceTimer();speechTimerRef.current=setTimeout(stopVoice,30000);
+    mediaActiveRef.current=true;
+    speechShouldRunRef.current=true;
+    voiceModeRef.current='browser';
+    setListening(true);
+    setVoiceLiveStatus('Đang mở nhận dạng giọng nói…');
+    beginBrowserRecognition(sessionId);
+    clearVoiceTimer();
+    speechTimerRef.current=setTimeout(stopVoice,30000);
   }
-  function chooseVoiceText(text){if(!voiceReview)return;setVoiceReview({...voiceReview,chosenText:text,parsed:parseVoiceVitals(text)});setForm(current=>({...current,content:[voiceReview.baseContent,text].filter(Boolean).join('\n')}))}
-  function applyVoice(){if(!voiceReview)return;const parsed=voiceReview.parsed;setForm(current=>({...current,...Object.fromEntries(Object.entries(parsed).filter(([,v])=>v!=='')),content:[voiceReview.baseContent,voiceReview.chosenText||voiceReview.transcript].filter(Boolean).join('\n')}));setVoiceReview(null)}
-  function discardVoice(){if(!voiceReview)return;setForm(current=>({...current,content:voiceReview.baseContent||''}));setVoiceReview(null)}
+  function chooseVoiceText(text){
+    if(!voiceReview)return;
+    setVoiceReview({...voiceReview,chosenText:text,parsed:parseVoiceVitals(text)});
+    setForm(current=>({...current,content:[voiceReview.baseContent,text].filter(Boolean).join('\n')}));
+  }
+  function applyVoice(){
+    if(!voiceReview)return;
+    const parsed=voiceReview.parsed;
+    setForm(current=>({...current,...Object.fromEntries(Object.entries(parsed).filter(([,v])=>v!=='')),content:[voiceReview.baseContent,voiceReview.chosenText||voiceReview.transcript].filter(Boolean).join('\n')}));
+    setVoiceReview(null);
+  }
+  function discardVoice(){
+    if(!voiceReview)return;
+    setForm(current=>({...current,content:voiceReview.baseContent||''}));
+    setVoiceReview(null);
+  }
   async function addWoundImages(event){
     const files=[...(event.target.files||[])];event.target.value='';if(!files.length)return;
-    if(form.woundImages.length+files.length>3){setErr('Mỗi lần ghi chỉ được tối đa 3 ảnh thêm.');return}
+    if(form.woundImages.length+files.length>3){setErr('Mỗi lần ghi chỉ được tối đa 3 ảnh vết loét.');return}
     setImageBusy(true);setErr('');
     try{const compressed=[];for(const file of files)compressed.push(await compressWoundImage(file));setForm(current=>({...current,woundImages:[...current.woundImages,...compressed]}))}
     catch(error){setErr(error.message)}finally{setImageBusy(false)}
@@ -376,7 +358,7 @@ export default function ShiftDetail(){
   async function confirm(){try{if(!signature.confirm)throw new Error('Bạn phải tick xác nhận đã rà soát ca.');const assigned=preview?.assignedStaff||preview?.shift?.assignedStaff||[];if(assigned.length<2)throw new Error('Ca chưa đủ tối thiểu 2 nhân sự.');if(signature.participantIds.length!==assigned.length)throw new Error('Phải tick đủ tất cả nhân sự trực ca trước khi bàn giao.');await api.handoverConfirm(id,signature);await handover();await load()}catch(e){setErr(e.message)}}
   async function receive(){try{if(!receiveSig.confirm)throw new Error('Bạn phải tick xác nhận đã nhận bàn giao.');await api.handoverReceive(id,receiveSig);await handover();await load()}catch(e){setErr(e.message)}}
   async function editChange(x){const content=prompt('Sửa nội dung biến động',x.content);if(content===null||!content.trim())return;const followUp=x.requiresHandover?prompt('Sửa nội dung ca sau cần biết/làm',x.followUp||''):x.followUp;let overrideReason='';if(d.shift.status!=='OPEN'){if(!isAdmin)return setErr('Ca đã ký bàn giao. Chỉ Admin mới được sửa dữ liệu đã khóa.');overrideReason=prompt('Bắt buộc nhập lý do sửa dữ liệu sau khi đã ký bàn giao:')||'';if(!overrideReason.trim())return;}try{await api.updateChange(x.id,{content,requiresHandover:x.requiresHandover,followUp:followUp??x.followUp,overrideReason});await load()}catch(e){setErr(e.message)}}
-  async function deleteWoundImage(change,image){if(!isAdmin)return setErr('Chỉ Admin được xóa ảnh đã lưu.');const reason=prompt('Lý do xóa ảnh?');if(!reason?.trim())return;let overrideReason='';if(d.shift.status!=='OPEN'){overrideReason=prompt('Lý do Admin sửa dữ liệu sau bàn giao?')||'';if(!overrideReason.trim())return;}try{await api.updateChange(change.id,{content:change.content,requiresHandover:change.requiresHandover,followUp:change.followUp,woundImages:(change.woundImages||[]).filter(x=>x.id!==image.id),overrideReason});await load()}catch(e){setErr(e.message)}}
+  async function deleteWoundImage(change,image){if(!isAdmin)return setErr('Chỉ Admin được xóa ảnh đã lưu.');const reason=prompt('Lý do xóa ảnh tổn thương da?');if(!reason?.trim())return;let overrideReason='';if(d.shift.status!=='OPEN'){overrideReason=prompt('Lý do Admin sửa dữ liệu sau bàn giao?')||'';if(!overrideReason.trim())return;}try{await api.updateChange(change.id,{content:change.content,requiresHandover:change.requiresHandover,followUp:change.followUp,woundImages:(change.woundImages||[]).filter(x=>x.id!==image.id),overrideReason});await load()}catch(e){setErr(e.message)}}
   async function resolveChange(){if(!resolveTarget||!resolveNote.trim())return;setResolveBusy(true);setErr('');try{await api.resolveChange(resolveTarget.id,resolveNote.trim());setResolveTarget(null);setResolveNote('');await load()}catch(e){setErr(e.message)}finally{setResolveBusy(false)}}
   async function del(changeId){const reason=prompt('Lý do xóa mềm bản ghi?');if(!reason)return;try{await api.deleteChange(changeId,reason);await load()}catch(e){setErr(e.message)}}
   async function editToileting(x){
@@ -399,7 +381,7 @@ export default function ShiftDetail(){
     <div className="section-head"><div><h2>Nhật ký biến động</h2><p>Mỗi lần ghi là một record riêng; một NCT có thể có nhiều lần ghi trong cùng ca.</p></div></div>
     <div className="cards">{d.changes.map(x=><div className={`log-card priority-border-${x.priority||'MEDIUM'} ${x.attentionLevel?`attention-card-${x.attentionLevel}`:''}`} key={x.id}><div><div className="log-title"><b>{x.residentName}</b><span className={`priority ${x.priority||'MEDIUM'}`}>{x.priority||'MEDIUM'}</span>{x.attentionLevel&&<span className={`attention-status ${x.attentionStatus==='RESOLVED'?'RESOLVED':x.attentionLevel}`}>{x.attentionStatus==='RESOLVED'?'ĐÃ XỬ LÝ':`${x.attentionLevel} • CẦN XỬ LÝ`}</span>}</div><small>{categories.find(c=>c[0]===x.category)?.[1]||x.category} • {eventTypes.find(e=>e[0]===x.eventType)?.[1]||x.eventType||'Theo dõi'} • {new Date(x.occurredAt||x.createdAt).toLocaleString('vi-VN')}</small><p>{x.content}</p>{x.intervention&&<small><b>Xử lý ban đầu:</b> {x.intervention}</small>}{x.vitals&&<small><b>Dấu hiệu sinh tồn:</b> {x.vitals.pulse?`Mạch ${x.vitals.pulse} lần/phút `:''}{x.vitals.temperature?`• Nhiệt độ ${x.vitals.temperature} °C `:''}{x.vitals.bpSys&&x.vitals.bpDia?`• Huyết áp ${x.vitals.bpSys}/${x.vitals.bpDia} mmHg `:''}{x.vitals.spo2?`• SpO₂ ${x.vitals.spo2}% `:''}{x.vitals.respiratoryRate?`• Nhịp thở ${x.vitals.respiratoryRate} lần/phút `:''}{x.vitals.bloodGlucose!=null?`• Đường huyết ${x.vitals.bloodGlucose} mg/dL`:''}</small>}{x.insulin?.given&&<small className="insulin-log"><b>Insulin:</b> {x.insulin.medicationName||'Insulin'} • {x.insulin.dose} IU</small>}{x.vitals?.urgent&&<small className="urgent-log"><b>Xử trí cảnh báo Đỏ:</b> đã xác nhận chỉ số ghi nhận và kiểm tra tình trạng NCT{x.vitals.urgent.action?` • ${x.vitals.urgent.action}`:''}{x.vitals.urgent.symptoms?` • Triệu chứng: ${x.vitals.urgent.symptoms}`:''}</small>}{x.resolutionNote&&<small className="resolution-text"><b>Kết quả xử lý:</b> {x.resolutionNote} • {x.resolvedByName} • {new Date(x.resolvedAt).toLocaleString('vi-VN')}</small>}{x.requiresHandover&&<small className="handover-text">→ Ca sau: {x.followUp}</small>}<small>{x.createdByName} • tạo {new Date(x.createdAt).toLocaleString('vi-VN')}</small></div><div className="actions">{x.attentionLevel&&x.attentionStatus==='OPEN'&&canWrite&&(d.shift.status==='OPEN'||isAdmin)&&<button onClick={()=>{setResolveTarget(x);setResolveNote('')}}>✓ Đã xử lý</button>}{canUpdate&&(d.shift.status==='OPEN'||isAdmin)&&<button className="secondary" onClick={()=>editChange(x)}>Sửa</button>}{canDelete&&isAdmin&&<button className="danger" onClick={()=>del(x.id)}>Xóa</button>}</div></div>)}{!d.changes.length&&<div className="empty compact">Chưa có biến động được ghi trong ca.</div>}</div>
 
-    {d.changes.some(x=>x.woundImages?.length)&&<div className="panel wound-history"><h3>Ảnh thêm trong ca</h3>{d.changes.filter(x=>x.woundImages?.length).map(x=><div key={x.id}><b>{x.residentName}</b><small>{new Date(x.createdAt).toLocaleString('vi-VN')}</small><div className="wound-image-grid saved">{x.woundImages.map(image=><div className="saved-wound-image" key={image.id}><a href={image.dataUrl} target="_blank" rel="noreferrer"><img src={image.dataUrl} alt={`Ảnh thêm ${x.residentName}`}/></a><small>Lưu đến {new Date(image.expiresAt).toLocaleDateString('vi-VN')}</small>{isAdmin&&<button type="button" className="danger compact-button" onClick={()=>deleteWoundImage(x,image)}>Xóa ảnh</button>}</div>)}</div></div>)}</div>}
+    {d.changes.some(x=>x.woundImages?.length)&&<div className="panel wound-history"><h3>Ảnh vết loét / tổn thương da trong ca</h3>{d.changes.filter(x=>x.woundImages?.length).map(x=><div key={x.id}><b>{x.residentName}</b><small>{new Date(x.createdAt).toLocaleString('vi-VN')}</small><div className="wound-image-grid saved">{x.woundImages.map(image=><div className="saved-wound-image" key={image.id}><a href={image.dataUrl} target="_blank" rel="noreferrer"><img src={image.dataUrl} alt={`Ảnh vết loét ${x.residentName}`}/></a><small>Lưu đến {new Date(image.expiresAt).toLocaleDateString('vi-VN')}</small>{isAdmin&&<button type="button" className="danger compact-button" onClick={()=>deleteWoundImage(x,image)}>Xóa ảnh</button>}</div>)}</div></div>)}</div>}
 
     {sel&&<div className="modal"><div className="modal-card wide entry-modal">
       <div className="modal-head"><div><h2>Ghi nhận chăm sóc — {sel.fullName}</h2><p>{sel.areaName} • {sel.roomName} • {sel.bedName}</p></div><button className="secondary" onClick={closeEntry}>Đóng</button></div>
@@ -407,12 +389,12 @@ export default function ShiftDetail(){
         <div className="entry-tabs"><button className={form.entryMode==='QUICK'?'active':''} onClick={()=>{cancelVoice();setForm({...form,entryMode:'QUICK'})}}>Nhập nhanh</button><button className={form.entryMode==='FULL'?'active':''} onClick={()=>{cancelVoice();setForm({...form,entryMode:'FULL'})}}>Đầy đủ</button></div>
         <div className="entry-layout"><div className="entry-form">
           <div className="form-grid entry-grid"><label>Nhóm<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{categories.map(x=><option value={x[0]} key={x[0]}>{x[1]}</option>)}</select></label><label>Mức ưu tiên<select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}>{levels.map(x=><option value={x[0]} key={x[0]}>{x[1]}</option>)}</select></label>{form.entryMode==='FULL'&&<><label>Loại sự kiện<select value={form.eventType} onChange={e=>setForm({...form,eventType:e.target.value,category:e.target.value==='FALL'?'INCIDENT':form.category})}>{eventTypes.map(x=><option value={x[0]} key={x[0]}>{x[1]}</option>)}</select></label><label>Thời điểm<input type="datetime-local" value={form.occurredAt} onChange={e=>setForm({...form,occurredAt:e.target.value})}/></label></>}</div>
-          <label>Nội dung *<span className="voice-row"><textarea autoFocus placeholder="Ví dụ: hai bàn chân phù, ăn kém; hoặc trượt ngã đau vai phải..." value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/><button type="button" aria-pressed={listening} disabled={voiceProcessing} className={`voice-button ${listening?'listening':''} ${voiceProcessing?'processing':''}`} onClick={startVoice}>{voiceProcessing?'AI đang chép lời…':listening?'■ Dừng & kiểm tra':'🎙 Nhập bằng giọng nói'}</button></span>{listening&&<small className="listening-hint">● {voiceLiveStatus||'Đang nghe…'} Hệ thống cập nhật cuốn chiếu khoảng 3 giây/lần và tự dừng sau 30 giây.</small>}{voiceProcessing&&<small className="listening-hint">Đang chép lại toàn bộ đoạn âm thanh lần cuối để bạn kiểm tra trước khi áp dụng. Chưa có dữ liệu nào được lưu.</small>}</label>
+          <label>Nội dung *<span className="voice-row"><textarea autoFocus placeholder="Ví dụ: hai bàn chân phù, ăn kém; hoặc trượt ngã đau vai phải..." value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/><button type="button" aria-pressed={listening} disabled={voiceProcessing} className={`voice-button ${listening?'listening':''} ${voiceProcessing?'processing':''}`} onClick={startVoice}>{listening?'■ Dừng & kiểm tra':'🎙 Nhập bằng giọng nói'}</button></span>{listening&&<small className="listening-hint">● {voiceLiveStatus||'Đang nghe…'} Hệ thống cập nhật cuốn chiếu khoảng 3 giây/lần và tự dừng sau 30 giây.</small>}</label>
           <label>Xử lý / hành động đã thực hiện<textarea placeholder="Ghi việc đã làm hoặc xử trí đã thực hiện. Có thể để trống nếu chỉ ghi nhận theo dõi thông thường." value={form.intervention} onChange={e=>setForm({...form,intervention:e.target.value})}/></label>
           <fieldset className="vitals-fieldset"><legend>Dấu hiệu sinh tồn — nhập số trực tiếp</legend><div className="vitals-grid"><label>Mạch (lần/phút)<input className={vitalErrors.pulse?'invalid':''} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="20–250" value={form.pulse} onChange={numericChange(setForm,'pulse')}/>{vitalErrors.pulse&&<small className="field-error">{vitalErrors.pulse}</small>}</label><label>Nhiệt độ (°C)<input className={vitalErrors.temperature?'invalid':''} type="text" inputMode="decimal" placeholder="30–45" value={form.temperature} onChange={numericChange(setForm,'temperature',{decimal:true,maxDecimals:1})}/>{vitalErrors.temperature&&<small className="field-error">{vitalErrors.temperature}</small>}</label><label>Huyết áp (mmHg)<span className="bp-inputs"><input className={vitalErrors.bpSys?'invalid':''} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Tâm thu" value={form.bpSys} onChange={numericChange(setForm,'bpSys')}/><b>/</b><input className={vitalErrors.bpDia?'invalid':''} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Tâm trương" value={form.bpDia} onChange={numericChange(setForm,'bpDia')}/></span>{(vitalErrors.bpSys||vitalErrors.bpDia)&&<small className="field-error">{vitalErrors.bpSys||vitalErrors.bpDia}</small>}</label><label>SpO₂ (%)<input className={vitalErrors.spo2?'invalid':''} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="1–100" value={form.spo2} onChange={numericChange(setForm,'spo2')}/>{vitalErrors.spo2&&<small className="field-error">{vitalErrors.spo2}</small>}</label><label>Nhịp thở (lần/phút)<input className={vitalErrors.respiratoryRate?'invalid':''} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="1–50" value={form.respiratoryRate} onChange={numericChange(setForm,'respiratoryRate')}/>{vitalErrors.respiratoryRate&&<small className="field-error">{vitalErrors.respiratoryRate}</small>}</label>{form.entryMode==='FULL'&&<label>Đường huyết (mg/dL)<input className={vitalErrors.bloodGlucose?'invalid':''} type="text" inputMode="decimal" placeholder="VD: 168" value={form.bloodGlucose} onChange={numericChange(setForm,'bloodGlucose',{decimal:true,maxDecimals:1})}/>{vitalErrors.bloodGlucose&&<small className="field-error">{vitalErrors.bloodGlucose}</small>}</label>}<label className="check concern"><input type="checkbox" checked={form.vitalConcern} onChange={e=>setForm({...form,vitalConcern:e.target.checked})}/> Đánh dấu cần chú ý</label></div>{form.entryMode==='FULL'&&<div className={`insulin-vitals-box ${form.insulinGiven?'active':''}`}><label className="check insulin-check"><input type="checkbox" checked={form.insulinGiven} onChange={e=>{const checked=e.target.checked;setErr('');setForm({...form,insulinGiven:checked,insulinOrderId:'',insulinDose:checked?form.insulinDose:''})}}/> Tiêm insulin</label>{form.insulinGiven&&<div className="insulin-inline-grid"><label>Liều insulin đã tiêm (IU) *<input autoFocus type="text" inputMode="decimal" placeholder="VD: 8" value={form.insulinDose} onChange={numericChange(setForm,'insulinDose',{decimal:true,maxDecimals:2})}/><small className="field-help">Insulin được ghi độc lập tại đây, không liên kết với phần Y khoa/y lệnh.</small></label></div>}</div>}<small className="field-help">Không đo thì để trống. Đường huyết và tiêm insulin chỉ ghi ở chế độ Đầy đủ.</small></fieldset>
           {vitalAlerts.length>0&&<div className={`clinical-alert ${redAlerts.length?'RED':'YELLOW'}`}><div><b>{redAlerts.length?'CẢNH BÁO ĐỎ – CẦN XỬ LÝ NGAY':'CẢNH BÁO VÀNG – CẦN THEO DÕI'}</b><span>{vitalAlerts.map(x=>x.message).join(' • ')}</span></div>{redAlerts.length>0&&<div className="urgent-fields simplified"><label className="check"><input type="checkbox" checked={form.urgentConfirmed} onChange={e=>setForm({...form,urgentConfirmed:e.target.checked})}/> Xác nhận chỉ số vừa ghi và tình trạng NCT *</label><label>Triệu chứng kèm theo (nếu có)<textarea placeholder="Ví dụ: khó thở, chóng mặt, lơ mơ..." value={form.urgentSymptoms} onChange={e=>setForm({...form,urgentSymptoms:e.target.value})}/></label><small className="urgent-help">Hành động xử trí chỉ nhập một lần ở ô “Xử lý / hành động đã thực hiện” phía trên.</small></div>}</div>}
           {form.entryMode==='FULL'&&<fieldset className="vitals-fieldset"><legend>Tiêu / tiểu</legend><div className="form-grid entry-grid"><label>Tiêu<select value={form.bowelStatus} onChange={e=>setForm({...form,bowelStatus:e.target.value})}><option value="NORMAL">Bình thường</option><option value="CONSTIPATION">Táo bón</option><option value="DIARRHEA">Tiêu chảy</option><option value="OTHER">Khác</option></select></label><label>Tiểu<select value={form.urineStatus} onChange={e=>setForm({...form,urineStatus:e.target.value,urineDetail:e.target.value==='OTHER'?form.urineDetail:''})}>{urineStatuses.map(x=><option value={x[0]} key={x[0]}>{x[1]}</option>)}</select></label></div>{form.urineStatus==='OTHER'&&<label>Mô tả tình trạng tiểu *<textarea value={form.urineDetail} onChange={e=>setForm({...form,urineDetail:e.target.value})}/></label>}<label>Ghi chú tiêu / tiểu<textarea value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label><div className="resident-timeline"><h3>Lịch sử tiêu/tiểu trong ca ({residentToilets.length})</h3>{residentToilets.slice(0,6).map(x=><div className="timeline-item" key={x.id}><div className="timeline-item-head"><small>{new Date(x.createdAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</small><span className="timeline-actions"><button type="button" className="secondary compact-button" disabled={!canUpdate} onClick={()=>editToileting(x)}>Sửa</button>{isAdmin&&<button type="button" className="danger compact-button" onClick={()=>delToileting(x)}>Xóa</button>}</span></div><p>Tiêu: {bowelLabels[x.bowelStatus]||x.bowelStatus} • Tiểu: {urineLabels[x.urineStatus]||x.urineStatus}</p>{x.urineDetail&&<small>Mô tả tiểu: {x.urineDetail}</small>}{x.note&&<small>{x.note}</small>}</div>)}</div></fieldset>}
-          {form.entryMode==='FULL'&&<fieldset className="vitals-fieldset wound-image-fieldset"><legend>Ảnh thêm</legend><label className="wound-upload-button">{imageBusy?'Đang nén ảnh…':'Chọn hoặc chụp ảnh'}<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple disabled={imageBusy||form.woundImages.length>=3} onChange={addWoundImages}/></label><small className="field-help">Tối đa 3 ảnh thêm cho lần ghi nhận này. Ảnh gốc tối đa 5 MB/ảnh; hệ thống tự thu nhỏ, nén dưới 800 KB và tự xóa dữ liệu ảnh sau 90 ngày.</small>{form.woundImages.length>0&&<div className="wound-image-grid">{form.woundImages.map((image,index)=><div className="wound-image-preview" key={`${image.name}-${index}`}><img src={image.dataUrl} alt={`Ảnh thêm ${index+1}`}/><small>{Math.ceil(image.sizeBytes/1024)} KB</small><button type="button" className="danger compact-button" onClick={()=>removeWoundImage(index)}>Xóa ảnh</button></div>)}</div>}</fieldset>}
+          {form.entryMode==='FULL'&&<fieldset className="vitals-fieldset wound-image-fieldset"><legend>Ảnh vết loét / tổn thương da</legend><label className="wound-upload-button">{imageBusy?'Đang nén ảnh…':'Chọn hoặc chụp ảnh'}<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple disabled={imageBusy||form.woundImages.length>=3} onChange={addWoundImages}/></label><small className="field-help">Tối đa 3 ảnh. Ảnh gốc tối đa 5 MB/ảnh; hệ thống tự thu nhỏ, nén dưới 800 KB và xóa dữ liệu ảnh sau 90 ngày.</small>{form.woundImages.length>0&&<div className="wound-image-grid">{form.woundImages.map((image,index)=><div className="wound-image-preview" key={`${image.name}-${index}`}><img src={image.dataUrl} alt={`Vết loét ${index+1}`}/><small>{Math.ceil(image.sizeBytes/1024)} KB</small><button type="button" className="danger compact-button" onClick={()=>removeWoundImage(index)}>Xóa ảnh</button></div>)}</div>}</fieldset>}
           <label className="check"><input type="checkbox" checked={form.requiresHandover} onChange={e=>setForm({...form,requiresHandover:e.target.checked})}/> Cần bàn giao ca sau</label>{form.requiresHandover&&<label>Ca sau cần biết/làm *<textarea value={form.followUp} onChange={e=>setForm({...form,followUp:e.target.value})}/></label>}
           <div className="actions sticky-actions"><button disabled={saveBusy} onClick={()=>prepareSave(false)}>Kiểm tra & nhập tiếp</button><button className="secondary" disabled={saveBusy} onClick={()=>prepareSave(true)}>Kiểm tra & đóng</button></div>
         </div><div className="resident-timeline"><h3>Lịch sử trong ca ({residentChanges.length})</h3>{residentChanges.slice(0,12).map(x=><div className="timeline-item" key={x.id}><div><span className={`priority ${x.priority||'MEDIUM'}`}>{x.priority||'MEDIUM'}</span><small>{new Date(x.occurredAt||x.createdAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</small></div><p>{x.content}</p>{x.vitals?.bloodGlucose!=null&&<small>Đường huyết: {x.vitals.bloodGlucose} mg/dL</small>}{(x.insulin?.given||x.vitals?.insulinDoseUnits!=null)&&<small className="insulin-log">Đã tiêm {x.insulin?.medicationName||'Insulin'} • {x.insulin?.dose??x.vitals?.insulinDoseUnits} IU</small>}{x.requiresHandover&&<small>→ {x.followUp}</small>}</div>)}{!residentChanges.length&&<div className="empty compact">Chưa có ghi nhận trong ca.</div>}</div></div>
@@ -429,7 +411,7 @@ export default function ShiftDetail(){
     </div></div>}
 
     {review&&<div className="modal review-modal"><div className="modal-card wide"><div className="modal-head"><div><h2>Kiểm tra trước khi lưu</h2><p>Chưa gửi dữ liệu. Đọc lại thông tin của {sel?.fullName} trước khi xác nhận.</p></div><button className="secondary" onClick={()=>setReview(null)}>Quay lại sửa</button></div>
-      <div className="review-grid"><div><small>Người cao tuổi</small><b>{sel?.fullName}</b><span>{sel?.areaName} • {sel?.roomName} • {sel?.bedName}</span></div><div><small>Thời điểm</small><b>{new Date(form.occurredAt).toLocaleString('vi-VN')}</b><span>{categories.find(x=>x[0]===form.category)?.[1]} • {levels.find(x=>x[0]===form.priority)?.[1]}</span></div><div className="review-wide"><small>Nội dung</small><p>{form.content}</p></div><div className="review-wide"><small>Dấu hiệu sinh tồn</small><p>{[form.pulse&&`Mạch ${form.pulse} lần/phút`,form.temperature&&`Nhiệt độ ${form.temperature}°C`,form.bpSys&&form.bpDia&&`Huyết áp ${form.bpSys}/${form.bpDia} mmHg`,form.spo2&&`SpO₂ ${form.spo2}%`,form.respiratoryRate&&`Nhịp thở ${form.respiratoryRate} lần/phút`,form.bloodGlucose&&`Đường huyết ${form.bloodGlucose} mg/dL`].filter(Boolean).join(' • ')||'Không nhập chỉ số'}</p>{form.insulinGiven&&<p><b>Insulin:</b> {form.insulinDose} IU</p>}</div>{form.entryMode==='FULL'&&<><div><small>Tiêu</small><b>{bowelLabels[form.bowelStatus]}</b></div><div><small>Tiểu</small><b>{urineLabels[form.urineStatus]}</b><span>{form.urineDetail}</span></div><div className="review-wide"><small>Ghi chú tiêu/tiểu</small><p>{form.note||'Không có'}</p></div><div className="review-wide"><small>Ảnh thêm</small><p>{form.woundImages.length} ảnh, tự xóa sau 90 ngày.</p></div></>}</div>
+      <div className="review-grid"><div><small>Người cao tuổi</small><b>{sel?.fullName}</b><span>{sel?.areaName} • {sel?.roomName} • {sel?.bedName}</span></div><div><small>Thời điểm</small><b>{new Date(form.occurredAt).toLocaleString('vi-VN')}</b><span>{categories.find(x=>x[0]===form.category)?.[1]} • {levels.find(x=>x[0]===form.priority)?.[1]}</span></div><div className="review-wide"><small>Nội dung</small><p>{form.content}</p></div><div className="review-wide"><small>Dấu hiệu sinh tồn</small><p>{[form.pulse&&`Mạch ${form.pulse} lần/phút`,form.temperature&&`Nhiệt độ ${form.temperature}°C`,form.bpSys&&form.bpDia&&`Huyết áp ${form.bpSys}/${form.bpDia} mmHg`,form.spo2&&`SpO₂ ${form.spo2}%`,form.respiratoryRate&&`Nhịp thở ${form.respiratoryRate} lần/phút`,form.bloodGlucose&&`Đường huyết ${form.bloodGlucose} mg/dL`].filter(Boolean).join(' • ')||'Không nhập chỉ số'}</p>{form.insulinGiven&&<p><b>Insulin:</b> {form.insulinDose} IU</p>}</div>{form.entryMode==='FULL'&&<><div><small>Tiêu</small><b>{bowelLabels[form.bowelStatus]}</b></div><div><small>Tiểu</small><b>{urineLabels[form.urineStatus]}</b><span>{form.urineDetail}</span></div><div className="review-wide"><small>Ghi chú tiêu/tiểu</small><p>{form.note||'Không có'}</p></div><div className="review-wide"><small>Ảnh vết loét</small><p>{form.woundImages.length} ảnh, tự xóa sau 90 ngày.</p></div></>}</div>
       {review.alerts?.length>0&&<div className={`clinical-alert ${review.alerts.some(x=>x.level==='RED')?'RED':'YELLOW'}`}><b>{review.alerts.some(x=>x.level==='RED')?'CẢNH BÁO ĐỎ':'CẢNH BÁO VÀNG'}</b><span>{review.alerts.map(x=>x.message).join(' • ')}</span>{review.alerts.some(x=>x.level==='RED')&&<small>Đã xác nhận chỉ số ghi nhận và kiểm tra tình trạng NCT{form.intervention?` • Xử lý: ${form.intervention}`:''}{form.urgentSymptoms?` • Triệu chứng: ${form.urgentSymptoms}`:''}</small>}</div>}
       <div className="confirm-note">Bấm “Xác nhận lưu” mới ghi dữ liệu vào hệ thống.</div><div className="actions"><button disabled={saveBusy} onClick={save}>{saveBusy?'Đang lưu...':'Xác nhận lưu'}</button><button className="secondary" disabled={saveBusy} onClick={()=>setReview(null)}>Quay lại chỉnh sửa</button></div>
     </div></div>}

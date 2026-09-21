@@ -7,7 +7,7 @@ import { branchInfo } from '../config/branches.js';
 import { audit } from '../services/audit.service.js';
 import { notifyUrgentCreated,notifyUrgentResolved } from '../services/telegram.service.js';
 import { sanitizeWoundImages } from '../services/media-retention.service.js';
-import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
+import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,getResidentVitalsReportFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
 
 const router = Router();
 router.use(authenticate);
@@ -419,14 +419,33 @@ router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
 });
 router.get('/reports/resident/:residentId',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const range=reportRange(req.query),residentId=String(req.params.residentId),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
-  const fast=await getReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
+  const [fast,vitalReport]=await Promise.all([
+    getReportBundleFast(req.user,{from:range.from,to:range.to,branchId}),
+    getResidentVitalsReportFast(req.user,{residentId,from:range.from,to:range.to,branchId})
+  ]);
   const s=fast?{shiftResidents:fast.residents,changeLogs:fast.changes,toiletingLogs:fast.toilets}:await getStore();
   const changes=(fast?s.changeLogs:s.changeLogs.filter(x=>!x.deleted&&inEventRange(x.occurredAt||x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x))).filter(x=>String(x.residentId)===residentId).map(withAttention).sort((a,b)=>String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt)));
   const toileting=(fast?s.toiletingLogs:s.toiletingLogs.filter(x=>!x.deleted&&inEventRange(x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x))).filter(x=>String(x.residentId)===residentId).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
   const roster=(s.shiftResidents||[]).filter(x=>String(x.residentId)===residentId);
   const base=changes[0]||toileting[0]||roster[0];
   if(!base)return res.status(404).json({success:false,message:'Không có dữ liệu NCT trong khoảng đã chọn'});
-  res.json({success:true,data:{from:range.from,to:range.to,resident:{id:residentId,name:base.residentName||base.fullName||'NCT',areaName:base.areaName||'',roomName:base.roomName||'',bedName:base.bedName||''},summary:{changes:changes.length,openRed:changes.filter(x=>x.attentionLevel==='RED'&&x.attentionStatus==='OPEN').length,openYellow:changes.filter(x=>x.attentionLevel==='YELLOW'&&x.attentionStatus==='OPEN').length,resolved:changes.filter(x=>x.attentionStatus==='RESOLVED').length,handover:changes.filter(x=>x.requiresHandover).length,toiletingAbnormal:toileting.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length},changes,toileting}});
+  // Sinh hiệu phải lấy cùng nguồn với timeline. Nếu timeline đã có vitals thì
+  // tuyệt đối không để một query phụ làm khối "Chỉ số sinh tồn" thành rỗng.
+  const hasVitalValue=(row)=>{
+    const v=row?.vitals;
+    if(!v)return false;
+    return [v.pulse,v.temperature,v.bpSys,v.bpDia,v.spo2,v.respiratoryRate,v.bloodGlucose,v.insulinDoseUnits]
+      .some(value=>value!==null&&value!==undefined&&value!=='');
+  };
+  const fallbackVitals=changes
+    .filter(hasVitalValue)
+    .sort((a,b)=>String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt)));
+
+  // Ưu tiên dữ liệu ngay trong changes vì đây chính là nguồn đang render timeline.
+  // Query riêng chỉ là fallback để tìm lần đo gần nhất trước/cuối kỳ khi trong kỳ không có lần đo.
+  const vitalHistory=fallbackVitals.length?fallbackVitals:(vitalReport?.readings||[]);
+  const latestVitalRecord=vitalHistory[0]||vitalReport?.latest||null;
+  res.json({success:true,data:{from:range.from,to:range.to,resident:{id:residentId,name:base.residentName||base.fullName||'NCT',areaName:base.areaName||'',roomName:base.roomName||'',bedName:base.bedName||''},summary:{changes:changes.length,openRed:changes.filter(x=>x.attentionLevel==='RED'&&x.attentionStatus==='OPEN').length,openYellow:changes.filter(x=>x.attentionLevel==='YELLOW'&&x.attentionStatus==='OPEN').length,resolved:changes.filter(x=>x.attentionStatus==='RESOLVED').length,handover:changes.filter(x=>x.requiresHandover).length,toiletingAbnormal:toileting.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length,vitalMeasurements:vitalHistory.length},latestVitalRecord,vitalHistory,changes,toileting}});
 });
 router.get('/audit-logs',allowPermission('AUDIT.VIEW'),async(req,res)=>{const s=await getStore();let rows=s.auditLogs;if(req.user.role!=='ADMIN')rows=rows.filter(x=>!x.branchId||x.branchId===req.user.branchId);res.json({success:true,data:rows.slice(0,300)})});
 

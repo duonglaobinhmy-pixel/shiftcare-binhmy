@@ -2,7 +2,33 @@ import { addOutbox } from '../utils/outbox';
 const API='/api';
 export function getToken(){return localStorage.getItem('shiftcare_token')||''}
 export function setToken(v){if(v)localStorage.setItem('shiftcare_token',v);else localStorage.removeItem('shiftcare_token')}
-async function request(path,options={}){const headers={...(options.headers||{})};if(!(options.body instanceof FormData))headers['Content-Type']='application/json';const token=getToken();if(token)headers.Authorization=`Bearer ${token}`;const res=await fetch(`${API}${path}`,{...options,headers,body:options.body&&!(options.body instanceof FormData)&&typeof options.body!=='string'?JSON.stringify(options.body):options.body});const data=await res.json().catch(()=>({message:`HTTP ${res.status}`}));if(!res.ok){const detail=typeof data?.error==='string'?data.error:data?.error?.message;throw new Error(data?.message||detail||`HTTP ${res.status}`)}return data}
+async function request(path,options={}){
+  const headers={...(options.headers||{})};
+  if(!(options.body instanceof FormData))headers['Content-Type']='application/json';
+
+  const token=getToken();
+  if(token)headers.Authorization=`Bearer ${token}`;
+
+  const res=await fetch(`${API}${path}`,{
+    ...options,
+    headers,
+    body:options.body&&!(options.body instanceof FormData)&&typeof options.body!=='string'
+      ?JSON.stringify(options.body)
+      :options.body
+  });
+
+  const data=await res.json().catch(()=>({message:`HTTP ${res.status}`}));
+
+  if(!res.ok){
+    const detail=typeof data?.error==='string'?data.error:data?.error?.message;
+    const error=new Error(data?.message||detail||`HTTP ${res.status}`);
+    error.status=res.status;
+    error.payload=data;
+    throw error;
+  }
+
+  return data;
+}
 async function writeWithQueue(kind,path,body,opts={}){try{return await request(path,{method:'POST',body})}catch(e){if(!opts.skipQueue&&!navigator.onLine){addOutbox({kind,payload:body});return{success:true,queued:true,data:{offline:true}}}throw e}}
 const rangeQs=(from='',to='',extra={})=>{const q=new URLSearchParams();if(from)q.set('from',from);if(to)q.set('to',to);Object.entries(extra||{}).forEach(([k,v])=>{if(v)q.set(k,v)});return q.toString()?`?${q}`:''};
 export const api={
@@ -16,5 +42,5 @@ export const api={
  reports:(from='',to='',branchId='')=>request(`/reports${rangeQs(from,to,{branchId})}`),staffReports:(from='',to='',branchId='')=>request(`/reports/staff${rangeQs(from,to,{branchId})}`),staffCalendar:(from='',to='',branchId='',staffId='')=>request(`/reports/staff/calendar${rangeQs(from,to,{branchId,staffId})}`),staffReportDay:(date='',branchId='',staffId='')=>request(`/reports/staff/day${rangeQs(date,date,{branchId,staffId,date})}`),residentMedicalReport:(residentId,from='',to='',branchId='')=>request(`/reports/resident/${encodeURIComponent(residentId)}${rangeQs(from,to,{branchId})}`),
  audit:()=>request('/audit-logs'),users:()=>request('/users'),staff:(branchId='')=>request(`/users/staff${branchId?`?branchId=${encodeURIComponent(branchId)}`:''}`),createStaff:(body)=>request('/users/staff',{method:'POST',body}),importStaff:(body)=>request('/users/staff/import',{method:'POST',body}),updateStaff:(id,body)=>request(`/users/staff/${id}`,{method:'PATCH',body}),deleteStaff:(id,reason)=>request(`/users/staff/${id}`,{method:'DELETE',body:{reason}}),createUser:(body)=>request('/users',{method:'POST',body}),updateUser:(id,body)=>request(`/users/${id}`,{method:'PATCH',body}),deactivateUser:(id)=>request(`/users/${id}`,{method:'DELETE'}),activateUser:(id)=>request(`/users/${id}/activate`,{method:'POST',body:{}}),deleteUserPermanent:(id,confirmUsername)=>request(`/users/${id}/permanent`,{method:'DELETE',body:{confirmUsername}}),
  medicationOrders:()=>request('/medication/orders'),createMedicationOrder:(body)=>request('/medication/orders',{method:'POST',body}),updateMedicationOrder:(id,body)=>request(`/medication/orders/${id}`,{method:'PATCH',body}),deleteMedicationOrder:(id,reason)=>request(`/medication/orders/${id}`,{method:'DELETE',body:{reason}}),stopMedicationOrder:(id,reason)=>request(`/medication/orders/${id}/stop`,{method:'POST',body:{reason}}),administerMedication:(id,body)=>request(`/medication/orders/${id}/administer`,{method:'POST',body}),medicationReport:(from='',to='')=>request(`/medication/report${rangeQs(from,to)}`),
- aiStatus:()=>request('/ai/status'),aiChat:(input)=>{const message=typeof input==='string'?input:String(input?.message||'');return request('/ai/chat',{method:'POST',body:{message}})},cleanTranscript:(text)=>request('/ai/clean-transcript',{method:'POST',body:{text}}),transcribeAudio:(audioBase64,mimeType)=>request('/ai/transcribe-audio',{method:'POST',body:{audioBase64,mimeType}})
+ aiStatus:()=>request('/ai/status'),aiReport:(scope={})=>request(`/ai/report${rangeQs(scope.from||'',scope.to||'',{branchId:scope.branchId||'',page:scope.page||'',residentId:scope.residentId||''})}`),aiChat:(input,scope={})=>{const message=typeof input==='string'?input:String(input?.message||'');return request('/ai/chat',{method:'POST',body:{message,scope}})},cleanTranscript:(text)=>request('/ai/clean-transcript',{method:'POST',body:{text}}),transcribeAudio:(audioBase64,mimeType)=>request('/ai/transcribe-audio',{method:'POST',body:{audioBase64,mimeType}})
 };

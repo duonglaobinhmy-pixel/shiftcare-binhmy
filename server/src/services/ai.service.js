@@ -1,87 +1,177 @@
 import { getStore } from './store.service.js';
+import { getDashboardBundleFast } from './fast-query.service.js';
 
-function list(value){return Array.isArray(value)?value:[]}
+const list=value=>Array.isArray(value)?value:[];
+const text=value=>String(value??'').trim();
+const todayVN=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date());
+
 function visible(user,row={}){
   if(user?.role==='ADMIN')return true;
-  if(row.branchId&&user?.branchId&&row.branchId!==user.branchId)return false;
+  if(row.branchId&&user?.branchId&&String(row.branchId)!==String(user.branchId))return false;
+  if(user?.role==='CAREGIVER'&&user?.areaId&&row.areaId&&String(row.areaId)!==String(user.areaId))return false;
   return true;
 }
-function todayVN(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date())}
-function sourceRows(context){return context.recentChanges.slice(0,5).map(x=>({type:'CHANGE_LOG',id:x.id,label:x.residentName}))}
 
-function compact(user,store={}){
-  const shifts=list(store.shifts).filter(x=>visible(user,x));
-  const ids=new Set(shifts.map(x=>x.id));
-  const changes=list(store.changeLogs).filter(x=>!x.deleted&&ids.has(x.shiftId)&&visible(user,x));
-  const toilets=list(store.toiletingLogs).filter(x=>!x.deleted&&ids.has(x.shiftId)&&visible(user,x));
-  const handovers=list(store.handovers).filter(x=>ids.has(x.shiftId)&&visible(user,x));
-  const date=todayVN();
-  const todayShifts=shifts.filter(x=>x.shiftDate===date);
-  const todayIds=new Set(todayShifts.map(x=>x.id));
-  const todayChanges=changes.filter(x=>todayIds.has(x.shiftId));
-  const todayToilets=toilets.filter(x=>todayIds.has(x.shiftId));
-  const byCategory=todayChanges.reduce((acc,x)=>{acc[x.category]=(acc[x.category]||0)+1;return acc},{});
+function hasVital(v={}){
+  return [v.pulse,v.temperature,v.bpSys,v.bpDia,v.spo2,v.respiratoryRate,v.bloodGlucose,v.insulinDoseUnits]
+    .some(x=>x!==null&&x!==undefined&&x!=='');
+}
+
+function normalizeBundle(bundle={}){
   return {
-    date,
-    user:{role:user?.role||'',branchName:user?.branchName||'Toàn hệ thống'},
-    stats:{
-      todayShifts:todayShifts.length,
-      todayChanges:todayChanges.length,
-      requiresHandover:todayChanges.filter(x=>x.requiresHandover).length,
-      abnormalToileting:todayToilets.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length,
-      pendingReceive:handovers.filter(x=>x.confirmedAt&&!x.receivedAt).length,
-      byCategory
-    },
-    recentChanges:todayChanges.slice(0,30).map(x=>({id:x.id,residentName:x.residentName,category:x.category,content:x.content,requiresHandover:x.requiresHandover,followUp:x.followUp,createdAt:x.createdAt})),
-    abnormalToileting:todayToilets.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').slice(0,20).map(x=>({id:x.id,residentName:x.residentName,bowelStatus:x.bowelStatus,urineStatus:x.urineStatus,note:x.note})),
-    openHandover:todayChanges.filter(x=>x.requiresHandover).slice(0,30).map(x=>({id:x.id,residentName:x.residentName,followUp:x.followUp}))
+    shifts:list(bundle.shifts),
+    changes:list(bundle.changes),
+    toilets:list(bundle.toilets),
+    handovers:list(bundle.handovers),
+    residents:list(bundle.residents),
+    outstanding:list(bundle.outstanding)
   };
 }
 
-function fallbackAnswer(question,context){
-  const q=String(question||'').toLowerCase();
+async function loadOperationalData(user,date){
+  try{
+    const fast=await getDashboardBundleFast(user,date);
+    if(fast)return normalizeBundle(fast);
+  }catch(error){
+    console.error('[AI] DB context unavailable, fallback store:',error?.message||error);
+  }
+
+  const store=await getStore().catch(()=>({}));
+  const shifts=list(store.shifts).filter(x=>visible(user,x)&&x.shiftDate===date);
+  const ids=new Set(shifts.map(x=>String(x.id)));
+  return {
+    shifts,
+    changes:list(store.changeLogs).filter(x=>!x.deleted&&ids.has(String(x.shiftId))&&visible(user,x)),
+    toilets:list(store.toiletingLogs).filter(x=>!x.deleted&&ids.has(String(x.shiftId))&&visible(user,x)),
+    handovers:list(store.handovers).filter(x=>ids.has(String(x.shiftId))&&visible(user,x)),
+    residents:list(store.shiftResidents).filter(x=>ids.has(String(x.shiftId))&&visible(user,x)),
+    outstanding:[]
+  };
+}
+
+function buildContext(user,data,date){
+  const {shifts,changes,toilets,handovers,residents,outstanding}=data;
+  const redOpen=changes.filter(x=>x.attentionLevel==='RED'&&x.attentionStatus==='OPEN');
+  const yellowOpen=changes.filter(x=>x.attentionLevel==='YELLOW'&&x.attentionStatus==='OPEN');
+  const resolved=changes.filter(x=>x.attentionLevel&&x.attentionStatus==='RESOLVED');
+  const vitals=changes.filter(x=>hasVital(x.vitals));
+  const byCategory=changes.reduce((acc,x)=>{const k=x.category||'OTHER';acc[k]=(acc[k]||0)+1;return acc},{});
+  const pendingReceive=handovers.filter(x=>x.confirmedAt&&!x.receivedAt);
+  const abnormalToileting=toilets.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL');
+
+  const latestVitalsByResident=new Map();
+  for(const row of [...vitals].sort((a,b)=>String(b.occurredAt||b.createdAt||'').localeCompare(String(a.occurredAt||a.createdAt||'')))){
+    const key=String(row.residentId||'');
+    if(key&&!latestVitalsByResident.has(key))latestVitalsByResident.set(key,row);
+  }
+
+  return {
+    date,
+    user:{role:user?.role||'',branchId:user?.branchId||'',branchName:user?.branchName||'Toàn hệ thống'},
+    stats:{
+      shifts:shifts.length,
+      residents:new Set(residents.map(x=>String(x.residentId||x.bcareResidentId||''))).size,
+      changes:changes.length,
+      redOpen:redOpen.length,
+      yellowOpen:yellowOpen.length,
+      resolvedAlerts:resolved.length,
+      requiresHandover:changes.filter(x=>x.requiresHandover).length,
+      abnormalToileting:abnormalToileting.length,
+      pendingReceive:pendingReceive.length,
+      vitalMeasurements:vitals.length,
+      byCategory
+    },
+    recentChanges:[...changes].sort((a,b)=>String(b.occurredAt||b.createdAt||'').localeCompare(String(a.occurredAt||a.createdAt||''))).slice(0,30).map(x=>({
+      id:x.id,residentId:x.residentId,residentName:x.residentName,category:x.category,eventType:x.eventType,priority:x.priority,
+      content:x.content,intervention:x.intervention,requiresHandover:!!x.requiresHandover,followUp:x.followUp,
+      attentionLevel:x.attentionLevel,attentionStatus:x.attentionStatus,occurredAt:x.occurredAt||x.createdAt,vitals:x.vitals||null
+    })),
+    openAlerts:[...redOpen,...yellowOpen].slice(0,30).map(x=>({id:x.id,residentName:x.residentName,level:x.attentionLevel,content:x.content,occurredAt:x.occurredAt||x.createdAt})),
+    abnormalToileting:abnormalToileting.slice(0,20).map(x=>({id:x.id,residentName:x.residentName,bowelStatus:x.bowelStatus,urineStatus:x.urineStatus,note:x.note,createdAt:x.createdAt})),
+    handoverItems:changes.filter(x=>x.requiresHandover).slice(0,30).map(x=>({id:x.id,residentName:x.residentName,followUp:x.followUp||'',attentionLevel:x.attentionLevel||null})),
+    latestVitals:[...latestVitalsByResident.values()].slice(0,30).map(x=>({residentId:x.residentId,residentName:x.residentName,occurredAt:x.occurredAt||x.createdAt,vitals:x.vitals})),
+    outstanding:list(outstanding).slice(0,30).map(x=>({id:x.id,residentName:x.residentName,level:x.attentionLevel,content:x.content,occurredAt:x.occurredAt||x.createdAt}))
+  };
+}
+
+async function contextForUser(user){
+  const date=todayVN();
+  const data=await loadOperationalData(user,date);
+  return buildContext(user,data,date);
+}
+
+function sourceRows(context){
+  return context.recentChanges.slice(0,5).map(x=>({type:'CHANGE_LOG',id:x.id,label:x.residentName||'NCT'}));
+}
+
+function vitalsText(v={}){
+  const parts=[];
+  if(v.pulse!=null)parts.push(`mạch ${v.pulse}`);
+  if(v.temperature!=null)parts.push(`nhiệt ${v.temperature}°C`);
+  if(v.bpSys!=null||v.bpDia!=null)parts.push(`HA ${v.bpSys??'—'}/${v.bpDia??'—'}`);
+  if(v.spo2!=null)parts.push(`SpO₂ ${v.spo2}%`);
+  if(v.respiratoryRate!=null)parts.push(`thở ${v.respiratoryRate}`);
+  if(v.bloodGlucose!=null)parts.push(`đường huyết ${v.bloodGlucose} mg/dL`);
+  return parts.join(', ');
+}
+
+function localDailyReport(context){
   const s=context.stats;
-  if(q.includes('ngã')||q.includes('nga')||q.includes('trượt')||q.includes('truot')){
-    const rows=context.recentChanges.filter(x=>/ngã|nga\b|trượt|truot/i.test(String(x.content||'')));
-    return rows.length?`Hôm nay có ${rows.length} ghi nhận có nội dung liên quan ngã/trượt: ${rows.map(x=>`${x.residentName}: ${x.content}`).join(' | ')}`:'Hôm nay chưa có bản ghi nào có nội dung liên quan ngã/trượt trong phạm vi bạn được xem.';
+  const alerts=context.openAlerts.slice(0,5).map(x=>`${x.level} ${x.residentName}: ${x.content}`).join(' | ');
+  const handover=context.handoverItems.slice(0,5).map(x=>`${x.residentName}: ${x.followUp||'chưa ghi nội dung'}`).join(' | ');
+  const vitals=context.latestVitals.slice(0,4).map(x=>`${x.residentName}: ${vitalsText(x.vitals)}`).filter(x=>!x.endsWith(': ')).join(' | ');
+  return [
+    `Báo cáo ${context.date}: ${s.shifts} ca, ${s.changes} biến động, ${s.vitalMeasurements} lần có chỉ số sinh tồn.`,
+    `Cảnh báo đang mở: ${s.redOpen} đỏ, ${s.yellowOpen} vàng; ${s.requiresHandover} mục cần bàn giao; ${s.abnormalToileting} ghi nhận tiêu/tiểu cần lưu ý.`,
+    alerts?`Ưu tiên xử lý: ${alerts}.`:'Hiện không có cảnh báo đỏ/vàng đang mở trong phạm vi tài khoản.',
+    handover?`Bàn giao: ${handover}.`:'Không có mục bàn giao đang được đánh dấu trong dữ liệu hôm nay.',
+    vitals?`Chỉ số gần nhất: ${vitals}.`:''
+  ].filter(Boolean).join(' ');
+}
+
+function fallbackAnswer(question,context){
+  const q=text(question).toLowerCase();
+  const s=context.stats;
+  if(/báo cáo|bao cao|tóm tắt|tom tat|tổng hợp|tong hop/.test(q))return localDailyReport(context);
+  if(/đỏ|do |cảnh báo|canh bao|chú ý|chu y/.test(q)){
+    if(!context.openAlerts.length)return 'Hiện không có cảnh báo đỏ/vàng đang mở trong phạm vi tài khoản.';
+    return `Có ${s.redOpen} cảnh báo đỏ và ${s.yellowOpen} cảnh báo vàng đang mở. ${context.openAlerts.slice(0,8).map(x=>`${x.level} ${x.residentName}: ${x.content}`).join(' | ')}`;
   }
-  if(q.includes('bàn giao')||q.includes('ban giao')||q.includes('chưa xong')||q.includes('chua xong')){
-    return s.requiresHandover?`Có ${s.requiresHandover} mục cần bàn giao. ${context.openHandover.map(x=>`${x.residentName}: ${x.followUp||'Chưa nhập việc cần làm tiếp'}`).join(' | ')}`:'Hiện chưa có mục nào được đánh dấu cần bàn giao trong dữ liệu hôm nay.';
+  if(/bàn giao|ban giao|chưa xong|chua xong/.test(q)){
+    return s.requiresHandover?`Có ${s.requiresHandover} mục cần bàn giao. ${context.handoverItems.slice(0,8).map(x=>`${x.residentName}: ${x.followUp||'Chưa nhập việc ca sau'}`).join(' | ')}`:'Không có mục nào đang được đánh dấu cần bàn giao trong dữ liệu hôm nay.';
   }
-  if(q.includes('chú ý')||q.includes('chu y')||q.includes('tóm tắt')||q.includes('tom tat')||q.includes('báo cáo')||q.includes('bao cao')){
-    const details=context.recentChanges.slice(0,6).map(x=>`${x.residentName}: ${x.content}`).join(' | ');
-    return `Hôm nay có ${s.todayShifts} ca, ${s.todayChanges} ghi nhận biến động, ${s.requiresHandover} mục cần bàn giao, ${s.abnormalToileting} ghi nhận tiêu/tiểu bất thường và ${s.pendingReceive} ca đã giao nhưng chưa nhận.${details?` Chi tiết gần nhất: ${details}`:''}`;
+  if(/sinh tồn|sinh ton|mạch|mach|spo|huyết áp|huyet ap|nhiệt|nhiet/.test(q)){
+    if(!context.latestVitals.length)return 'Chưa có chỉ số sinh tồn trong dữ liệu hôm nay thuộc phạm vi bạn được xem.';
+    return `Có ${s.vitalMeasurements} lần ghi chỉ số sinh tồn. Gần nhất: ${context.latestVitals.slice(0,8).map(x=>`${x.residentName}: ${vitalsText(x.vitals)}`).join(' | ')}`;
   }
-  return `Trong dữ liệu hôm nay: ${s.todayChanges} biến động, ${s.requiresHandover} mục cần bàn giao, ${s.abnormalToileting} ghi nhận tiêu/tiểu bất thường. Bạn có thể hỏi cụ thể về NCT cần chú ý, bàn giao hoặc trường hợp ngã.`;
+  if(/ngã|nga\b|trượt|truot/.test(q)){
+    const rows=context.recentChanges.filter(x=>/ngã|nga\b|trượt|truot/i.test(String(x.content||''))||x.eventType==='FALL');
+    return rows.length?`Có ${rows.length} ghi nhận liên quan ngã/trượt: ${rows.map(x=>`${x.residentName}: ${x.content}`).join(' | ')}`:'Hôm nay chưa có bản ghi liên quan ngã/trượt trong phạm vi bạn được xem.';
+  }
+  return `Dữ liệu hôm nay: ${s.shifts} ca, ${s.changes} biến động, ${s.redOpen} đỏ đang mở, ${s.yellowOpen} vàng đang mở, ${s.requiresHandover} mục cần bàn giao và ${s.vitalMeasurements} lần có chỉ số sinh tồn. Bạn có thể hỏi về cảnh báo, bàn giao, sinh hiệu hoặc yêu cầu “tóm tắt báo cáo hôm nay”.`;
 }
 
 function geminiModelCandidates(){
-  const configured=String(process.env.GEMINI_MODEL||'').trim();
-  // Luôn ưu tiên model do môi trường cấu hình. Các model sau chỉ là fallback tương thích.
+  const configured=text(process.env.GEMINI_MODEL);
   return [...new Set([configured,'gemini-2.5-flash','gemini-2.0-flash'].filter(Boolean))];
 }
 function isAccessDenied(error){return /project has been denied access|permission denied|access denied|api key.*(invalid|blocked)|forbidden|403/i.test(String(error?.message||''))}
-
-// Nếu Gemini trả 403/project denied, ghi nhớ trong process hiện tại để chatbot không chờ lỗi lặp lại.
 let geminiBlockedReason='';
-function markGeminiBlocked(error){
-  if(isAccessDenied(error))geminiBlockedReason=String(error?.message||'Gemini access denied');
-}
-function publicGeminiWarning(){
-  return geminiBlockedReason
-    ? 'Gemini ngoài đang bị Google từ chối quyền truy cập; hệ thống đã tự chuyển sang chế độ nội bộ.'
-    : '';
-}
+function markGeminiBlocked(error){if(isAccessDenied(error))geminiBlockedReason=String(error?.message||'Gemini access denied')}
+function publicGeminiWarning(){return geminiBlockedReason?'Gemini ngoài đang bị Google từ chối quyền truy cập; hệ thống đang dùng báo cáo nội bộ từ CSDL.':''}
+
 export function getAIStatus(){
-  const geminiConfigured=Boolean(String(process.env.GEMINI_API_KEY||'').trim());
-  const sttFallbackConfigured=Boolean(String(process.env.STT_API_URL||'').trim());
+  const geminiConfigured=Boolean(text(process.env.GEMINI_API_KEY));
+  const sttFallbackConfigured=Boolean(text(process.env.STT_API_URL));
   return {
     geminiConfigured,
     geminiAvailable:geminiConfigured&&!geminiBlockedReason,
     geminiBlocked:Boolean(geminiBlockedReason),
     geminiWarning:publicGeminiWarning(),
     browserSpeechPreferred:true,
-    sttFallbackConfigured
+    voiceMode:'browser-speech',
+    sttFallbackConfigured,
+    internalReportAvailable:true
   };
 }
 
@@ -89,172 +179,132 @@ async function callGeminiText(key,model,body){
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data=await response.json().catch(()=>({}));
-  if(!response.ok){
-    const error=new Error(data?.error?.message||`Gemini HTTP ${response.status}`);
-    error.status=response.status;
-    throw error;
-  }
+  if(!response.ok){const error=new Error(data?.error?.message||`Gemini HTTP ${response.status}`);error.status=response.status;throw error}
   return data;
 }
 
-export async function answerAI(user,message){
-  let context;
-  try{context=compact(user,await getStore())}
-  catch(error){
-    console.error('[AI] Cannot build context:',error);
-    context=compact(user,{});
-  }
-
-  const key=String(process.env.GEMINI_API_KEY||'').trim();
-  if(geminiBlockedReason){
-    return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:publicGeminiWarning(),sources:sourceRows(context)};
-  }
-  if(!key){
-    return {answer:fallbackAnswer(message,context),mode:'local-demo',model:null,warning:'Chưa cấu hình GEMINI_API_KEY; đang dùng phân tích nội bộ.',sources:sourceRows(context)};
-  }
-
-  const system='Bạn là Trợ lý ShiftCare của Bình Mỹ Care. Chỉ dùng CONTEXT được cung cấp. Không chẩn đoán y khoa. Không tự tạo số liệu, không suy đoán dữ liệu thiếu. Không được đề nghị hay thực hiện sửa/xóa/ký dữ liệu. Câu “không có biến động ghi nhận” không đồng nghĩa NCT hoàn toàn bình thường. Trả lời ngắn, rõ, tiếng Việt. Nếu hỏi số lượng, chỉ dùng số trong stats.';
-  const body={contents:[{role:'user',parts:[{text:`${system}\n\nCONTEXT JSON:\n${JSON.stringify(context)}\n\nCÂU HỎI:\n${message}`}]}],generationConfig:{temperature:0.2,maxOutputTokens:900}};
+async function askGemini(context,message){
+  const key=text(process.env.GEMINI_API_KEY);
+  if(!key||geminiBlockedReason)return null;
+  const system='Bạn là trợ lý báo cáo ShiftCare Bình Mỹ. CHỈ dùng CONTEXT JSON. Không chẩn đoán, không bịa số, không suy diễn dữ liệu thiếu, không sửa hồ sơ. Ưu tiên cảnh báo đỏ/vàng, bàn giao, sinh hiệu bất thường và biến động gần nhất. Trả lời tiếng Việt rõ, ngắn, có số liệu đúng như context.';
+  const body={contents:[{role:'user',parts:[{text:`${system}\n\nCONTEXT JSON:\n${JSON.stringify(context)}\n\nYÊU CẦU:\n${message}`}]}],generationConfig:{temperature:0.1,maxOutputTokens:900}};
   let lastError=null;
   for(const model of geminiModelCandidates()){
     try{
       const data=await callGeminiText(key,model,body);
       const answer=data?.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('').trim();
-      if(!answer)throw new Error('Gemini không trả nội dung.');
-      return {answer,mode:'gemini',model,sources:sourceRows(context)};
+      if(answer)return {answer,mode:'gemini',model};
+      throw new Error('Gemini không trả nội dung.');
     }catch(error){
       lastError=error;
       console.error(`[AI] Gemini ${model} failed:`,error?.message||error);
-      if(isAccessDenied(error)){markGeminiBlocked(error);break;}
+      if(isAccessDenied(error)){markGeminiBlocked(error);break}
     }
   }
-
-  // Chatbot luôn còn hoạt động ở chế độ nội bộ nếu Gemini/key/quota/model/mạng lỗi.
-  return {answer:fallbackAnswer(message,context),mode:'local-fallback',model:null,warning:isAccessDenied(lastError)?'Gemini ngoài đang bị Google từ chối quyền truy cập; đang dùng phân tích nội bộ.':`Gemini tạm không khả dụng; đang dùng phân tích nội bộ: ${String(lastError?.message||'Unknown error')}`,sources:sourceRows(context)};
+  return {error:lastError};
 }
 
-function conservativeTranscript(text){
-  let cleaned=String(text||'').trim().replace(/\s+/g,' ').replace(/\s+([,.;:!?])/g,'$1');
+export async function answerAI(user,message){
+  const context=await contextForUser(user);
+  const gemini=await askGemini(context,message);
+  if(gemini?.answer)return {...gemini,sources:sourceRows(context)};
+  return {
+    answer:fallbackAnswer(message,context),
+    mode:'local-report',
+    model:null,
+    warning:geminiBlockedReason?publicGeminiWarning():(gemini?.error?`AI ngoài tạm không khả dụng; đã dùng báo cáo nội bộ: ${String(gemini.error?.message||'')}`:'Đang dùng báo cáo nội bộ từ CSDL.'),
+    sources:sourceRows(context)
+  };
+}
+
+export async function generateDailyReport(user){
+  const context=await contextForUser(user);
+  const prompt='Tạo báo cáo vận hành hôm nay. Nêu tổng số ca, biến động, cảnh báo đỏ/vàng đang mở, bàn giao, tiêu/tiểu cần lưu ý, chỉ số sinh tồn và các NCT cần ưu tiên. Không chẩn đoán.';
+  const gemini=await askGemini(context,prompt);
+  return {
+    answer:gemini?.answer||localDailyReport(context),
+    mode:gemini?.answer?'gemini':'local-report',
+    model:gemini?.model||null,
+    warning:gemini?.answer?'':(geminiBlockedReason?publicGeminiWarning():'Báo cáo được tạo nội bộ trực tiếp từ CSDL.'),
+    stats:context.stats,
+    sources:sourceRows(context)
+  };
+}
+
+function conservativeTranscript(value){
+  let cleaned=text(value).replace(/\s+/g,' ').replace(/\s+([,.;:!?])/g,'$1');
   cleaned=cleaned.replace(/\bsp\s*o\s*2\b/gi,'SpO₂').replace(/\bmm\s*hg\b/gi,'mmHg');
   if(cleaned)cleaned=cleaned[0].toUpperCase()+cleaned.slice(1);
   return cleaned;
 }
-function numberSignature(text){return (String(text).match(/\d+(?:[.,]\d+)?/g)||[]).map(x=>x.replace(',','.'))}
+function numberSignature(value){return (String(value).match(/\d+(?:[.,]\d+)?/g)||[]).map(x=>x.replace(',','.'))}
 function safeTranscript(original,candidate){
-  const source=String(original).trim(),cleaned=String(candidate||'').trim();
+  const source=text(original),cleaned=text(candidate);
   if(!cleaned)return false;
   if(JSON.stringify(numberSignature(source))!==JSON.stringify(numberSignature(cleaned)))return false;
   const ratio=cleaned.length/Math.max(source.length,1);
   return ratio>=0.65&&ratio<=1.35;
 }
 
-export async function cleanTranscriptAI(text){
-  const original=String(text||'').trim();
-  const local=conservativeTranscript(original);
-  const key=String(process.env.GEMINI_API_KEY||'').trim();
+export async function cleanTranscriptAI(value){
+  const original=text(value),local=conservativeTranscript(original),key=text(process.env.GEMINI_API_KEY);
+  if(!original)return{original:'',cleaned:'',mode:'local'};
   if(geminiBlockedReason)return{original,cleaned:local,mode:'local-fallback',warning:publicGeminiWarning()};
-  if(!key)return{original,cleaned:local,mode:'local',warning:'Chưa cấu hình GEMINI_API_KEY; chỉ chuẩn hóa khoảng trắng và thuật ngữ kỹ thuật.'};
-  const instruction='Bạn chỉ làm sạch bản chép lời tiếng Việt trong phiếu chăm sóc người cao tuổi. ĐƯỢC PHÉP: sửa dấu câu, viết hoa, khoảng trắng, từ nhận dạng sai khi hoàn toàn chắc chắn, chuẩn hóa SpO2/mmHg/độ C. CẤM: thêm hoặc bớt sự kiện, triệu chứng, chẩn đoán, hành động, tên người, thời gian; cấm suy diễn; cấm đổi, thêm hoặc xóa bất kỳ con số nào. Nếu không chắc, giữ nguyên từ gốc. Chỉ trả JSON {"cleaned":"..."}.';
+  if(!key)return{original,cleaned:local,mode:'local',warning:'Đã làm sạch cục bộ; không cần AI ngoài.'};
+  const instruction='Chỉ sửa dấu câu, viết hoa, khoảng trắng và chuẩn hóa SpO2/mmHg/độ C. CẤM đổi, thêm hoặc xóa con số; cấm thêm triệu chứng, chẩn đoán, hành động, tên người hoặc thời gian. Chỉ trả JSON {"cleaned":"..."}.';
   const body={contents:[{role:'user',parts:[{text:`${instruction}\n\nBẢN GỐC:\n${original}`}]}],generationConfig:{temperature:0,maxOutputTokens:500,responseMimeType:'application/json'}};
-  let lastError=null;
   for(const model of geminiModelCandidates()){
     try{
       const data=await callGeminiText(key,model,body);
       const raw=data?.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('').trim()||'';
       const parsed=JSON.parse(raw.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));
       const cleaned=conservativeTranscript(parsed.cleaned);
-      if(!safeTranscript(original,cleaned))return{original,cleaned:local,mode:'guarded-fallback',warning:'Bản AI bị loại vì có nguy cơ thay đổi con số hoặc thêm/bớt quá nhiều nội dung.'};
+      if(!safeTranscript(original,cleaned))return{original,cleaned:local,mode:'guarded-fallback',warning:'Bản AI bị loại vì có nguy cơ thay đổi số liệu.'};
       return{original,cleaned,mode:'gemini',model};
-    }catch(error){lastError=error;if(isAccessDenied(error)){markGeminiBlocked(error);break}}
+    }catch(error){if(isAccessDenied(error)){markGeminiBlocked(error);break}}
   }
-  return{original,cleaned:local,mode:'local-fallback',warning:`AI không khả dụng; đang dùng làm sạch cục bộ: ${String(lastError?.message||'Unknown error')}`};
+  return{original,cleaned:local,mode:'local-fallback',warning:'AI ngoài không khả dụng; đã làm sạch cục bộ.'};
 }
 
 function normalizedAudioMime(mimeType){
   const raw=String(mimeType||'audio/webm').toLowerCase().trim();
-  // Gemini thường chấp nhận mime base tốt hơn chuỗi có codecs.
-  if(raw.startsWith('audio/webm'))return 'audio/webm';
-  if(raw.startsWith('audio/ogg'))return 'audio/ogg';
-  if(raw.startsWith('audio/mp4'))return 'audio/mp4';
-  if(raw==='audio/x-wav')return 'audio/wav';
-  if(raw==='audio/mp3')return 'audio/mpeg';
+  if(raw.startsWith('audio/webm'))return'audio/webm';
+  if(raw.startsWith('audio/ogg'))return'audio/ogg';
+  if(raw.startsWith('audio/mp4'))return'audio/mp4';
+  if(raw==='audio/x-wav')return'audio/wav';
+  if(raw==='audio/mp3')return'audio/mpeg';
   return raw;
 }
-
-function audioExtension(mimeType){
-  if(mimeType==='audio/mp4')return 'm4a';
-  if(mimeType==='audio/ogg')return 'ogg';
-  if(mimeType==='audio/wav')return 'wav';
-  if(mimeType==='audio/mpeg')return 'mp3';
-  return 'webm';
-}
+function audioExtension(mimeType){if(mimeType==='audio/mp4')return'm4a';if(mimeType==='audio/ogg')return'ogg';if(mimeType==='audio/wav')return'wav';if(mimeType==='audio/mpeg')return'mp3';return'webm'}
 
 async function transcribeExternalSTT(data,mimeType,size){
-  const url=String(process.env.STT_API_URL||'').trim();
+  const url=text(process.env.STT_API_URL);
   if(!url)return null;
-  const key=String(process.env.STT_API_KEY||'').trim();
-  const model=String(process.env.STT_MODEL||'whisper-1').trim();
+  const key=text(process.env.STT_API_KEY),model=text(process.env.STT_MODEL)||'whisper-1';
   const bytes=Buffer.from(data,'base64');
   const form=new FormData();
   form.append('file',new Blob([bytes],{type:mimeType}),`shiftcare-voice.${audioExtension(mimeType)}`);
   if(model)form.append('model',model);
   form.append('language','vi');
-  const headers={};
-  if(key)headers.Authorization=`Bearer ${key}`;
+  const headers={};if(key)headers.Authorization=`Bearer ${key}`;
   const response=await fetch(url,{method:'POST',headers,body:form});
   const payload=await response.json().catch(()=>({}));
-  if(!response.ok){
-    const error=new Error(payload?.error?.message||payload?.message||`STT HTTP ${response.status}`);
-    error.status=response.status;
-    throw error;
-  }
-  const transcript=String(payload?.text||payload?.transcript||payload?.data?.text||payload?.data?.transcript||'').trim();
+  if(!response.ok){const error=new Error(payload?.error?.message||payload?.message||`STT HTTP ${response.status}`);error.status=response.status;throw error}
+  const transcript=text(payload?.text||payload?.transcript||payload?.data?.text||payload?.data?.transcript);
   if(!transcript)throw new Error('Dịch vụ STT không trả nội dung chép lời.');
-  return {transcript:conservativeTranscript(transcript),mode:'external-stt',model:model||null,mimeType,sizeBytes:size};
+  return{transcript:conservativeTranscript(transcript),mode:'external-stt',model,mimeType,sizeBytes:size};
 }
 
 export async function transcribeAudioAI(audioBase64,mimeType='audio/webm'){
-  const key=String(process.env.GEMINI_API_KEY||'').trim();
   const normalizedMime=normalizedAudioMime(mimeType);
   const allowed=new Set(['audio/webm','audio/mp4','audio/ogg','audio/wav','audio/mpeg']);
   if(!allowed.has(normalizedMime))throw new Error(`Định dạng âm thanh chưa hỗ trợ: ${normalizedMime}`);
   const data=String(audioBase64||'').replace(/^data:[^;]+;base64,/,''),size=Buffer.byteLength(data,'base64');
   if(!data||size<100)throw new Error('Đoạn âm thanh trống hoặc quá ngắn.');
   if(size>6*1024*1024)throw new Error('Đoạn âm thanh vượt quá giới hạn 6 MB.');
-
-  try{
-    const external=await transcribeExternalSTT(data,normalizedMime,size);
-    if(external)return external;
-  }catch(error){
-    console.error('[STT] External provider failed:',error?.message||error);
-    if(!key||geminiBlockedReason){error.status=503;throw error;}
-  }
-
-  if(geminiBlockedReason){
-    const error=new Error('Không có dịch vụ chép lời dự phòng: Gemini đang bị Google từ chối quyền truy cập. Trên Chrome, hãy dùng nhận dạng giọng nói trực tiếp hoặc cấu hình STT_API_URL.');
-    error.status=503;
-    throw error;
-  }
-  if(!key){
-    const error=new Error('Chưa cấu hình dịch vụ chép lời dự phòng. Trên Chrome hệ thống vẫn dùng nhận dạng giọng nói trực tiếp; để chép file âm thanh hãy cấu hình STT_API_URL hoặc GEMINI_API_KEY.');
-    error.status=503;
-    throw error;
-  }
-
-  const prompt='Chép nguyên văn lời nói tiếng Việt trong đoạn âm thanh thành một đoạn văn ngắn dùng cho nhật ký chăm sóc người cao tuổi. Giữ nguyên mọi con số, tên riêng, phủ định và mức độ. Không thêm triệu chứng, chẩn đoán, hành động hay thông tin không nghe thấy. Không suy đoán từ bị mất; chỗ không nghe rõ ghi [không nghe rõ]. Chỉ trả lại nội dung chép lời, không markdown, không giải thích. Nếu hoàn toàn không có lời nói, trả EMPTY_AUDIO.';
-  let lastError=null;
-  for(const model of geminiModelCandidates()){
-    try{
-      const body={contents:[{role:'user',parts:[{text:prompt},{inlineData:{mimeType:normalizedMime,data}}]}],generationConfig:{temperature:0,maxOutputTokens:700}};
-      const json=await callGeminiText(key,model,body);
-      const transcript=json?.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('').trim()||'';
-      if(!transcript||transcript==='EMPTY_AUDIO')throw new Error('Không phát hiện lời nói trong đoạn âm thanh.');
-      return{transcript:conservativeTranscript(transcript.replace(/^```(?:text)?\s*/i,'').replace(/\s*```$/,'')),mode:'gemini-audio',model,mimeType:normalizedMime,sizeBytes:size};
-    }catch(error){
-      lastError=error;
-      console.error(`[AI AUDIO] Gemini ${model} failed:`,error?.message||error);
-      if(isAccessDenied(error)){markGeminiBlocked(error);break;}
-    }
-  }
-  throw new Error(`Không thể chép lời bằng Gemini: ${String(lastError?.message||'Unknown error')}`);
+  const external=await transcribeExternalSTT(data,normalizedMime,size);
+  if(external)return external;
+  const error=new Error('Server không dùng Gemini để chép lời nữa. Hãy dùng nhận dạng giọng nói trực tiếp trên Chrome/Safari hoặc cấu hình STT_API_URL.');
+  error.status=503;
+  throw error;
 }

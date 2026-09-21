@@ -473,6 +473,56 @@ export async function getStaffDayDetailFast(user,{date,branchId='',staffId=''}){
   };
 }
 
+
+export async function getResidentVitalsReportFast(user,{residentId,from,to,branchId=''}){
+  if(!await ready())return null;
+  const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
+  const db=getPool();
+
+  const params=[String(residentId),from,to];
+  let scope=`c.bcare_resident_id=$1 AND c.deleted=FALSE`;
+  if(effectiveBranch){params.push(effectiveBranch);scope+=` AND c.branch_id=$${params.length}`}
+
+  const vitalPresent=`(
+    v.pulse IS NOT NULL OR v.temperature IS NOT NULL OR v.bp_sys IS NOT NULL OR
+    v.bp_dia IS NOT NULL OR v.spo2 IS NOT NULL OR v.respiratory_rate IS NOT NULL OR
+    v.blood_glucose IS NOT NULL OR v.insulin_dose_units IS NOT NULL
+  )`;
+
+  const rangeSql=`
+    SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
+           v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units
+    FROM care_records c
+    JOIN care_record_vitals v ON v.care_record_id=c.id
+    WHERE ${scope}
+      AND ${vitalPresent}
+      AND c.occurred_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+      AND c.occurred_at < ((($3::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+    ORDER BY c.occurred_at DESC
+  `;
+
+  const latestParams=[String(residentId),to];
+  let latestScope=`c.bcare_resident_id=$1 AND c.deleted=FALSE`;
+  if(effectiveBranch){latestParams.push(effectiveBranch);latestScope+=` AND c.branch_id=$${latestParams.length}`}
+
+  const latestSql=`
+    SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
+           v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units
+    FROM care_records c
+    JOIN care_record_vitals v ON v.care_record_id=c.id
+    WHERE ${latestScope}
+      AND ${vitalPresent}
+      AND c.occurred_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+    ORDER BY c.occurred_at DESC
+    LIMIT 1
+  `;
+
+  const [rr,lr]=await Promise.all([db.query(rangeSql,params),db.query(latestSql,latestParams)]);
+  const readings=rr.rows.map(mapCareRow);
+  const latest=lr.rows[0]?mapCareRow(lr.rows[0]):null;
+  return {readings,latest};
+}
+
 export async function createShiftFast(user,body,{branchName='',assignedStaff=[],primaryRecorder}={}){
   if(!await ready())return null;
   const id=uuid();const shiftDate=dateOnly(body.shiftDate)||dateOnly(new Date());

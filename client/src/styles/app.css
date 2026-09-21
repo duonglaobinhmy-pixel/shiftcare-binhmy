@@ -214,3 +214,20 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
   .resident-report-filter-grid,.resident-index-filters{grid-template-columns:1fr}
   .resident-index-grid{grid-template-columns:1fr}
 }
+
+
+/* ===== Resident report: vital signs ===== */
+.resident-vitals-report{margin-bottom:16px}
+.resident-vital-grid{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:10px;margin-top:12px}
+.resident-vital-card{border:1px solid #cfe3db;border-radius:16px;background:#f8fcfa;padding:14px;min-height:104px;display:flex;flex-direction:column;justify-content:center}
+.resident-vital-card span{font-size:13px;color:#617a71;font-weight:700}
+.resident-vital-card b{font-size:25px;line-height:1.15;margin-top:5px;color:#143d32}
+.resident-vital-card small{margin-top:3px;color:#71877f}
+.resident-vital-card.empty{background:#fbfcfb;opacity:.72}
+.resident-vital-history{margin-top:16px;border-top:1px solid #dce9e4;padding-top:14px}
+.resident-vital-history h3{margin:0 0 10px;font-size:16px}
+.resident-vital-history-row{display:grid;grid-template-columns:160px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid #edf3f0}
+.resident-vital-history-row:last-child{border-bottom:0}
+.resident-vital-history-row strong{font-size:13px;color:#526b62}
+@media(max-width:1200px){.resident-vital-grid{grid-template-columns:repeat(4,minmax(130px,1fr))}}
+@media(max-width:800px){.resident-vital-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.resident-vital-history-row{grid-template-columns:1fr;gap:5px}.resident-vital-card b{font-size:22px}}
