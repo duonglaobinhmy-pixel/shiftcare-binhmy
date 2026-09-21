@@ -11,6 +11,8 @@ import Shifts from './pages/Shifts';
 import ShiftDetail from './pages/ShiftDetail';
 import Reports from './pages/Reports';
 import StaffReports from './pages/StaffReports';
+import StaffReportDay from './pages/StaffReportDay';
+import ResidentReportDetail from './pages/ResidentReportDetail';
 import Audit from './pages/Audit';
 import Users from './pages/Users';
 import System from './pages/System';
@@ -33,8 +35,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="shifts/:id" element={<ShiftDetail/>}/>
             <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Reports/></ProtectedRoute>}/>
             <Route path="reports/staff" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><StaffReports/></ProtectedRoute>}/>
+            <Route path="reports/staff/day/:date" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><StaffReportDay/></ProtectedRoute>}/>
+            <Route path="reports/resident/:residentId" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><ResidentReportDetail/></ProtectedRoute>}/>
             <Route path="audit" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Audit/></ProtectedRoute>}/>
-            <Route path="users" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Users/></ProtectedRoute>}/>
+            <Route path="users" element={<ProtectedRoute roles={['ADMIN']}><Users/></ProtectedRoute>}/>
             <Route path="system" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><System/></ProtectedRoute>}/>
           </Route>
         </Routes>

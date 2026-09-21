@@ -1,85 +1,345 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const catLabel={HEALTH:'Sức khỏe',NUTRITION:'Dinh dưỡng / ăn uống',PSYCHOLOGY:'Tâm lý / hành vi',SKIN:'Ngoài da',INCIDENT:'Ngã / sự cố',OTHER:'Khác'};
-const urineLabel={NORMAL:'BT',SONDE:'Qua sonde',CATHETER:'Qua ống tiểu',DIAPER:'Qua tã',OTHER:'Khác',LOW:'Tiểu ít',NONE:'Không tiểu'};
-const bowelLabel={NORMAL:'Bình thường',CONSTIPATION:'Táo bón',DIARRHEA:'Tiêu chảy',OTHER:'Khác'};
-const today=()=>new Date().toLocaleDateString('en-CA');
-function vitalText(v){if(!v)return'';return[v.pulse!=null&&`Mạch ${v.pulse}`,v.temperature!=null&&`Nhiệt ${v.temperature}°C`,v.bpSys!=null&&`HA ${v.bpSys}/${v.bpDia}`,v.spo2!=null&&`SpO₂ ${v.spo2}%`,v.respiratoryRate!=null&&`Thở ${v.respiratoryRate}`].filter(Boolean).join(' • ')}
-function formatDate(v){if(!v)return'—';return new Date(`${v}T00:00:00`).toLocaleDateString('vi-VN')}
-function formatDateTime(v){if(!v)return'—';return new Date(v).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
-function ImageCell({images,onOpen}){const list=(images||[]).filter(x=>x?.dataUrl||x?.url||x?.image||typeof x==='string');if(!list.length)return <span>—</span>;return <div className="report-image-strip">{list.slice(0,3).map((x,i)=>{const src=typeof x==='string'?x:(x.dataUrl||x.url||x.image);return <button type="button" key={i} onClick={()=>onOpen(src)}><img src={src} alt="Ảnh tổn thương"/></button>})}</div>}
+const VN_TZ = 'Asia/Ho_Chi_Minh';
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: VN_TZ }).format(new Date());
 
-export default function Reports(){
-  const {user}=useAuth();
-  const [searchParams]=useSearchParams();
-  const initial=today();
-  const [from,setFrom]=useState(searchParams.get('from')||initial);
-  const [to,setTo]=useState(searchParams.get('to')||initial);
-  const [d,setD]=useState(null);
-  const [branches,setBranches]=useState([]);
-  const [branchId,setBranchId]=useState(searchParams.get('branchId')||user.branchId||'');
-  const [err,setErr]=useState('');
-  const [loading,setLoading]=useState(true);
-  const [q,setQ]=useState('');
-  const [filter,setFilter]=useState('ALL');
-  const [imagePreview,setImagePreview]=useState(null);
-  const [residentModal,setResidentModal]=useState(null);
-  const [residentLoading,setResidentLoading]=useState(false);
-  const rangeLabel=from===to?formatDate(from):`${formatDate(from)} → ${formatDate(to)}`;
-  const isAdmin=user.role==='ADMIN';
+function formatDate(v) {
+  if (!v) return '—';
+  const [y, m, d] = String(v).split('-');
+  return `${d}/${m}/${y}`;
+}
 
-  async function load(){setLoading(true);try{setErr('');const r=await api.reports(from,to,branchId);setD(r.data)}catch(e){setErr(e.message);setD(null)}finally{setLoading(false)}}
-  useEffect(()=>{load()},[from,to,branchId]);
-  useEffect(()=>{api.branches().then(r=>setBranches(r.data||[])).catch(e=>setErr(e.message))},[]);
+function formatDateTime(v) {
+  if (!v) return '—';
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: VN_TZ,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(v));
+}
 
-  const branchSummaries=useMemo(()=>{
-    if(d?.branchSummaries?.length)return d.branchSummaries;
-    const map=new Map();
-    for(const s of d?.shiftDetails||[]){const key=String(s.branchId||'');const x=map.get(key)||{branchId:key,branchName:s.branchName||'Chưa xác định',shifts:0,residents:0,changes:0,redOpen:0,yellowOpen:0};x.shifts++;x.residents+=Number(s.residentCount||0);x.changes+=Number(s.changeCount||0);map.set(key,x)}
-    return [...map.values()];
-  },[d]);
+function riskRank(x) {
+  if (x.redOpen) return 3;
+  if (x.yellowOpen) return 2;
+  if (x.handoverCount || x.toiletingAbnormal) return 1;
+  return 0;
+}
 
-  const details=useMemo(()=>{const query=q.trim().toLowerCase();return(d?.details||[]).filter(x=>(filter==='ALL'||filter==='HANDOVER'&&x.requiresHandover||filter==='OPEN'&&x.attentionLevel&&x.attentionStatus==='OPEN'||filter===x.attentionLevel)&&(!query||`${x.residentName} ${x.content} ${x.areaName} ${x.roomName} ${x.createdByName}`.toLowerCase().includes(query)))},[d,q,filter]);
-  const residentSummaries=useMemo(()=>{const query=q.trim().toLowerCase();return(d?.residentSummaries||[]).filter(x=>!query||`${x.residentName} ${x.areaName} ${x.roomName} ${x.branchName}`.toLowerCase().includes(query))},[d,q]);
-  const showDetail=!isAdmin||!!branchId||branchSummaries.length<=1;
+export default function Reports() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  async function openResident(row){try{setResidentLoading(true);setResidentModal({resident:{id:row.residentId,name:row.residentName,areaName:row.areaName,roomName:row.roomName,bedName:row.bedName},summary:row,changes:[],toileting:[]});const r=await api.residentMedicalReport(row.residentId,from,to,branchId);setResidentModal(r.data)}catch(e){setErr(e.message)}finally{setResidentLoading(false)}}
+  const initial = today();
+  const [from, setFrom] = useState(searchParams.get('from') || initial);
+  const [to, setTo] = useState(searchParams.get('to') || initial);
+  const [branchId, setBranchId] = useState(searchParams.get('branchId') || user.branchId || '');
+  const [branches, setBranches] = useState([]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [q, setQ] = useState('');
+  const [riskFilter, setRiskFilter] = useState('ALL');
 
-  function exportCsv(){if(!d)return;const rows=[['Ngày giờ','Cơ sở','NCT','Khu','Phòng/Giường','Nhóm','Mức','Trạng thái','Nội dung','Sinh hiệu','Xử lý','Người ghi'],...details.map(x=>[formatDateTime(x.occurredAt||x.createdAt),x.branchName||'',x.residentName,x.areaName||'',`${x.roomName||''} ${x.bedName||''}`,catLabel[x.category]||x.category,x.attentionLevel||'',x.attentionStatus==='RESOLVED'?'Đã xử lý':x.attentionLevel?'Cần xử lý':'',x.content,vitalText(x.vitals),x.intervention||'',x.createdByName||''])];const csv='\ufeff'+rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=`bcare-bao-cao-${from}-${to}.csv`;a.click()}
+  const isAdmin = user.role === 'ADMIN';
+  const rangeLabel = from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
 
-  return <section>
-    <header className="page-head report-page-head"><div><h1>Báo cáo biến động NCT</h1><p>Admin xem tổng hợp theo từng cơ sở trước; chọn một cơ sở để đi sâu NCT và biến động.</p></div><div className="report-top-actions"><Link className="button-link" to="/reports/staff">Báo cáo nhân viên</Link><button className="secondary" onClick={exportCsv} disabled={!d}>Xuất CSV</button></div></header>
-    {err&&<div className="error">{err}</div>}
+  useEffect(() => {
+    api.branches()
+      .then(r => setBranches(r.data || []))
+      .catch(e => setErr(e.message));
+  }, []);
 
-    <div className="report-period-panel">
-      <div className="report-period-inputs">
-        <label>Từ ngày<input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
-        <label>Đến ngày<input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label>
-        <label>Cơ sở<select value={branchId} onChange={e=>setBranchId(e.target.value)} disabled={!isAdmin}><option value="">{isAdmin?'Tất cả cơ sở':'Cơ sở của tôi'}</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-        <div className="report-range-summary"><b>{rangeLabel}</b><small>{branchId?(branches.find(b=>String(b.id)===String(branchId))?.name||'Cơ sở đã chọn'):'Tổng hợp toàn hệ thống'}</small></div>
+  useEffect(() => {
+    const params = {};
+    if (from) params.from = from;
+    if (to) params.to = to;
+    if (branchId) params.branchId = branchId;
+    setSearchParams(params, { replace: true });
+  }, [from, to, branchId, setSearchParams]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setErr('');
+
+    api.reports(from, to, branchId)
+      .then(r => {
+        if (alive) setData(r.data || null);
+      })
+      .catch(e => {
+        if (alive) {
+          setErr(e.message);
+          setData(null);
+        }
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => { alive = false; };
+  }, [from, to, branchId]);
+
+  const branchSummaries = useMemo(() => data?.branchSummaries || [], [data]);
+
+  const residents = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return [...(data?.residentSummaries || [])]
+      .filter(x => {
+        if (riskFilter === 'RED' && !x.redOpen) return false;
+        if (riskFilter === 'YELLOW' && !x.yellowOpen) return false;
+        if (riskFilter === 'HANDOVER' && !x.handoverCount) return false;
+        if (riskFilter === 'TOILETING' && !x.toiletingAbnormal) return false;
+        if (!query) return true;
+        return `${x.residentName || ''} ${x.areaName || ''} ${x.roomName || ''} ${x.bedName || ''}`
+          .toLowerCase()
+          .includes(query);
+      })
+      .sort((a, b) =>
+        (riskRank(b) - riskRank(a)) ||
+        (Number(b.changeCount || 0) - Number(a.changeCount || 0)) ||
+        String(a.residentName || '').localeCompare(String(b.residentName || ''), 'vi')
+      );
+  }, [data, q, riskFilter]);
+
+  const outstanding = useMemo(() => (data?.outstanding || []).slice(0, 8), [data]);
+
+  function openResident(row) {
+    const qs = new URLSearchParams();
+    qs.set('from', from);
+    qs.set('to', to);
+    if (branchId) qs.set('branchId', branchId);
+    navigate(`/reports/resident/${encodeURIComponent(row.residentId)}?${qs.toString()}`);
+  }
+
+  function exportCsv() {
+    if (!data) return;
+    const rows = [
+      ['NCT', 'Cơ sở', 'Khu', 'Phòng', 'Giường', 'Biến động', 'Đỏ mở', 'Vàng mở', 'Cần bàn giao', 'Tiêu/tiểu lưu ý', 'Nội dung gần nhất'],
+      ...(data.residentSummaries || []).map(x => [
+        x.residentName || '',
+        x.branchName || '',
+        x.areaName || '',
+        x.roomName || '',
+        x.bedName || '',
+        x.changeCount || 0,
+        x.redOpen || 0,
+        x.yellowOpen || 0,
+        x.handoverCount || 0,
+        x.toiletingAbnormal || 0,
+        x.lastContent || ''
+      ])
+    ];
+    const csv = '\ufeff' + rows
+      .map(row => row.map(v => `"${String(v ?? '').replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `bao-cao-nct-${from}-${to}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  const branchName = branchId
+    ? branches.find(b => String(b.id) === String(branchId))?.name || 'Cơ sở đã chọn'
+    : 'Toàn hệ thống';
+
+  return (
+    <section>
+      <header className="page-head report-page-head">
+        <div>
+          <h1>Báo cáo biến động NCT</h1>
+          <p>Tổng hợp nhẹ theo NCT. Bấm vào một NCT để mở trang diễn tiến chi tiết riêng.</p>
+        </div>
+        <div className="report-top-actions">
+          <Link className="button-link" to="/reports/staff">Lịch ca nhân viên</Link>
+          <button className="secondary" onClick={exportCsv} disabled={!data}>Xuất CSV</button>
+        </div>
+      </header>
+
+      <div className="report-period-panel">
+        <div className="report-period-inputs resident-report-filter-grid">
+          <label>
+            Từ ngày
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          </label>
+          <label>
+            Đến ngày
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+          </label>
+          <label>
+            Cơ sở
+            <select value={branchId} onChange={e => setBranchId(e.target.value)} disabled={!isAdmin}>
+              <option value="">{isAdmin ? 'Tất cả cơ sở' : 'Cơ sở của tôi'}</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+          <div className="report-range-summary">
+            <small>Khoảng báo cáo</small>
+            <b>{rangeLabel}</b>
+            <span>{branchName}</span>
+          </div>
+        </div>
       </div>
-    </div>
 
-    {loading?<div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải báo cáo...</b><small>Chỉ truy vấn dữ liệu trong khoảng ngày/cơ sở đã chọn.</small></div></div>:<>
-      {isAdmin&&branchSummaries.length>1&&<div className="panel branch-overview-panel"><div className="panel-title"><div><h2>Tổng hợp theo cơ sở</h2><p>Chọn một cơ sở để xem danh sách NCT và biến động chi tiết, tránh trộn dữ liệu nhiều cơ sở.</p></div><span>{branchSummaries.length} cơ sở</span></div><div className="branch-report-grid">{branchSummaries.map(x=><button key={x.branchId} className={`branch-report-card ${String(branchId)===String(x.branchId)?'selected':''}`} onClick={()=>setBranchId(String(x.branchId))}><div><b>{x.branchName}</b><small>{x.shifts} ca • {x.residents} NCT</small></div><div className="branch-report-numbers"><span><b>{x.changes}</b> biến động</span><span className="red"><b>{x.redOpen}</b> đỏ mở</span><span className="yellow"><b>{x.yellowOpen}</b> vàng mở</span></div></button>)}</div>{branchId&&<button className="secondary compact-button" onClick={()=>setBranchId('')}>← Xem lại toàn hệ thống</button>}</div>}
+      {err && <div className="error">{err}</div>}
 
-      <div className="stats report-kpis"><div className="stat"><b>{d?.shifts||0}</b><span>Ca</span></div><div className="stat"><b>{d?.uniqueResidents||0}</b><span>NCT có dữ liệu</span></div><div className="stat"><b>{d?.changes||0}</b><span>Biến động phát sinh</span></div><div className="stat danger"><b>{d?.openRed||0}</b><span>Đỏ chưa xử lý</span></div><div className="stat warning"><b>{d?.openYellow||0}</b><span>Vàng chưa xử lý</span></div><div className="stat"><b>{d?.resolutionRate??100}%</b><span>Tỷ lệ xử lý</span></div></div>
+      {loading ? (
+        <div className="page-loading">
+          <div className="page-loading-card">
+            <span className="loading-spinner" />
+            <b>Đang tải báo cáo NCT...</b>
+            <small>Chỉ lấy dữ liệu trong khoảng ngày và cơ sở đã chọn.</small>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="stats report-kpis resident-report-kpis">
+            <div className="stat"><b>{data?.uniqueResidents || 0}</b><span>NCT có dữ liệu</span></div>
+            <div className="stat"><b>{data?.changes || 0}</b><span>Biến động</span></div>
+            <div className="stat danger"><b>{data?.openRed || 0}</b><span>Đỏ chưa xử lý</span></div>
+            <div className="stat warning"><b>{data?.openYellow || 0}</b><span>Vàng chưa xử lý</span></div>
+            <div className="stat"><b>{data?.requiresHandover || 0}</b><span>Cần bàn giao</span></div>
+            <div className="stat"><b>{data?.toiletingAbnormal || 0}</b><span>Tiêu/tiểu lưu ý</span></div>
+            <div className="stat success-stat"><b>{data?.resolutionRate ?? 100}%</b><span>Tỷ lệ xử lý</span></div>
+          </div>
 
-      {!showDetail&&<div className="empty report-select-branch"><b>Chọn một cơ sở ở trên để xem chi tiết.</b><span>Ở chế độ toàn hệ thống chỉ hiển thị tổng hợp theo cơ sở để tránh danh sách NCT bị trộn và quá dài.</span></div>}
+          {isAdmin && !branchId && branchSummaries.length > 1 && (
+            <div className="panel branch-overview-panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Theo cơ sở</h2>
+                  <p>Chọn một cơ sở để đi sâu, tránh trộn hàng trăm NCT của nhiều cơ sở trên một màn hình.</p>
+                </div>
+                <span>{branchSummaries.length} cơ sở</span>
+              </div>
+              <div className="branch-report-grid compact-branch-grid">
+                {branchSummaries.map(x => (
+                  <button
+                    key={x.branchId}
+                    className="branch-report-card"
+                    onClick={() => setBranchId(String(x.branchId))}
+                  >
+                    <div>
+                      <b>{x.branchName}</b>
+                      <small>{x.residents} NCT có dữ liệu · {x.shifts} ca</small>
+                    </div>
+                    <div className="branch-report-numbers">
+                      <span><b>{x.changes}</b> biến động</span>
+                      <span className="red"><b>{x.redOpen}</b> đỏ</span>
+                      <span className="yellow"><b>{x.yellowOpen}</b> vàng</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {showDetail&&<>
-        <div className="panel report-control-panel"><div className="panel-title"><div><h2>NCT trong kỳ</h2><p>Ưu tiên NCT có cảnh báo Đỏ/Vàng lên trước.</p></div><span>{residentSummaries.length} NCT</span></div><div className="report-inline-filters"><input placeholder="Tìm NCT / phòng / khu..." value={q} onChange={e=>setQ(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}><option value="ALL">Tất cả biến động</option><option value="OPEN">Cần xử lý</option><option value="RED">Đỏ</option><option value="YELLOW">Vàng</option><option value="HANDOVER">Cần bàn giao</option></select></div><div className="resident-report-grid">{residentSummaries.map(x=><button key={x.residentId} className={`resident-report-card ${x.redOpen?'risk-red':x.yellowOpen?'risk-yellow':''}`} onClick={()=>openResident(x)}><div className="resident-report-card-head"><div><b>{x.residentName}</b><small>{x.areaName||'—'} • {x.roomName||'—'} • {x.bedName||'—'}</small></div>{x.redOpen?<span className="attention-status RED">ĐỎ {x.redOpen}</span>:x.yellowOpen?<span className="attention-status YELLOW">VÀNG {x.yellowOpen}</span>:<span className="resident-ok">Ổn</span>}</div><div className="resident-mini-stats"><span><b>{x.changeCount}</b> biến động</span><span><b>{x.handoverCount}</b> bàn giao</span><span><b>{x.toiletingAbnormal}</b> tiêu/tiểu lưu ý</span></div>{x.lastContent&&<div className="resident-last-event"><small>{formatDateTime(x.lastEventAt)}</small><p>{x.lastContent}</p><em>{vitalText(x.latestVitals)}</em></div>}</button>)}</div>{!residentSummaries.length&&<div className="empty compact">Không có NCT phù hợp trong kỳ.</div>}</div>
+          {!!outstanding.length && (
+            <div className="panel resident-priority-panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Cần xử lý trước</h2>
+                  <p>Cảnh báo đỏ/vàng đang mở, ưu tiên theo mức và thời điểm.</p>
+                </div>
+                <span>{outstanding.length} cảnh báo hiển thị</span>
+              </div>
+              <div className="priority-alert-list">
+                {outstanding.map(x => (
+                  <button
+                    type="button"
+                    key={x.id}
+                    className={`priority-alert-row ${x.attentionLevel || ''}`}
+                    onClick={() => openResident(x)}
+                  >
+                    <span className={`attention-status ${x.attentionLevel || ''}`}>{x.attentionLevel || '—'}</span>
+                    <div>
+                      <b>{x.residentName || 'NCT'}</b>
+                      <small>{x.areaName || '—'} · {x.roomName || '—'} · {x.bedName || '—'}</small>
+                    </div>
+                    <p>{x.content || '—'}</p>
+                    <time>{formatDateTime(x.occurredAt || x.createdAt)}</time>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-        <div className="panel"><div className="panel-title"><div><h2>Chi tiết biến động</h2><p>Chỉ dữ liệu của cơ sở đang chọn.</p></div><span>{details.length} dòng</span></div><div className="table-wrap flat"><table><thead><tr><th>Ngày giờ</th><th>NCT</th><th>Mức / trạng thái</th><th>Nội dung và xử lý</th><th>Ảnh</th><th>Người ghi</th></tr></thead><tbody>{details.map(x=><tr key={x.id}><td>{formatDateTime(x.occurredAt||x.createdAt)}</td><td><button className="link-button resident-name-link" onClick={()=>openResident(x)}><b>{x.residentName}</b></button><small>{x.areaName||'—'} • {x.roomName||'—'} • {x.bedName||'—'}</small></td><td>{x.attentionLevel?<><span className={`attention-status ${x.attentionLevel}`}>{x.attentionLevel}</span><small>{x.attentionStatus==='RESOLVED'?'Đã xử lý':'Cần xử lý'}</small></>:<span className="badge">Thông thường</span>}</td><td>{x.content}<small>{vitalText(x.vitals)}</small>{x.intervention&&<small><b>Xử lý:</b> {x.intervention}</small>}</td><td><ImageCell images={x.woundImages} onOpen={setImagePreview}/></td><td>{x.createdByName||'—'}</td></tr>)}</tbody></table></div>{!details.length&&<div className="empty compact">Không có biến động phù hợp.</div>}</div>
+          <div className="panel resident-index-panel">
+            <div className="panel-title resident-index-title">
+              <div>
+                <h2>NCT trong kỳ</h2>
+                <p>Không tải toàn bộ bảng chi tiết. Chọn NCT để xem timeline riêng.</p>
+              </div>
+              <span>{residents.length} NCT</span>
+            </div>
 
-        <div className="panel"><h2>Tiêu / tiểu</h2><div className="table-wrap flat"><table><thead><tr><th>Ngày giờ</th><th>NCT</th><th>Tiêu</th><th>Tiểu</th><th>Ghi chú</th><th>Người ghi</th></tr></thead><tbody>{(d?.toiletingDetails||[]).map(x=><tr key={x.id}><td>{formatDateTime(x.createdAt)}</td><td><button className="link-button" onClick={()=>openResident(x)}><b>{x.residentName}</b></button><small>{x.areaName} • {x.roomName} • {x.bedName}</small></td><td>{bowelLabel[x.bowelStatus]||x.bowelStatus}</td><td>{urineLabel[x.urineStatus]||x.urineStatus}</td><td>{[x.urineDetail,x.note].filter(Boolean).join(' • ')||'—'}</td><td>{x.createdByName||'—'}</td></tr>)}</tbody></table></div></div>
-      </>}
-    </>}
+            <div className="report-inline-filters resident-index-filters">
+              <input
+                placeholder="Tìm tên NCT / khu / phòng / giường..."
+                value={q}
+                onChange={e => setQ(e.target.value)}
+              />
+              <select value={riskFilter} onChange={e => setRiskFilter(e.target.value)}>
+                <option value="ALL">Tất cả</option>
+                <option value="RED">Có cảnh báo đỏ</option>
+                <option value="YELLOW">Có cảnh báo vàng</option>
+                <option value="HANDOVER">Cần bàn giao</option>
+                <option value="TOILETING">Tiêu/tiểu lưu ý</option>
+              </select>
+            </div>
 
-    {residentModal&&<div className="modal" onClick={()=>setResidentModal(null)}><div className="modal-card resident-report-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><h2>{residentModal.resident?.name||'Chi tiết NCT'}</h2><p>{[residentModal.resident?.areaName,residentModal.resident?.roomName,residentModal.resident?.bedName].filter(Boolean).join(' • ')} · {rangeLabel}</p></div><button className="secondary" onClick={()=>setResidentModal(null)}>Đóng</button></div>{residentLoading?<div className="inline-loading"><span className="loading-spinner"/>Đang tải hồ sơ...</div>:<div className="resident-timeline"><h3>Diễn tiến chăm sóc</h3>{(residentModal.changes||[]).map(x=><div className={`timeline-item ${x.attentionLevel||''}`} key={x.id}><div className="timeline-time">{formatDateTime(x.occurredAt||x.createdAt)}</div><div className="timeline-body"><div className="timeline-title"><b>{catLabel[x.category]||x.category||'Biến động phát sinh'}</b>{x.attentionLevel&&<span className={`attention-status ${x.attentionLevel}`}>{x.attentionLevel}</span>}</div><p>{x.content}</p>{vitalText(x.vitals)&&<small>{vitalText(x.vitals)}</small>}<div className="timeline-meta">Người ghi: {x.createdByName||'—'}</div><ImageCell images={x.woundImages} onOpen={setImagePreview}/></div></div>)}{!(residentModal.changes||[]).length&&<div className="empty compact">Không có biến động trong kỳ.</div>}<h3>Tiêu / tiểu</h3>{(residentModal.toileting||[]).map(x=><div className="timeline-item" key={x.id}><div className="timeline-time">{formatDateTime(x.createdAt)}</div><div className="timeline-body"><p><b>Tiêu:</b> {bowelLabel[x.bowelStatus]||x.bowelStatus} · <b>Tiểu:</b> {urineLabel[x.urineStatus]||x.urineStatus}</p><small>{[x.urineDetail,x.note].filter(Boolean).join(' • ')||'Không ghi chú'}</small></div></div>)}</div>}</div></div>}
-    {imagePreview&&<div className="modal image-modal-top" onClick={()=>setImagePreview(null)}><div className="modal-card image-preview-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><h2>Ảnh vết loét / tổn thương da</h2><button className="secondary" onClick={()=>setImagePreview(null)}>Đóng</button></div><img src={imagePreview} alt="Ảnh tổn thương"/></div></div>}
-  </section>
+            <div className="resident-report-grid resident-index-grid">
+              {residents.map(x => (
+                <button
+                  type="button"
+                  key={x.residentId}
+                  className={`resident-report-card ${x.redOpen ? 'risk-red' : x.yellowOpen ? 'risk-yellow' : ''}`}
+                  onClick={() => openResident(x)}
+                >
+                  <div className="resident-report-card-head">
+                    <div>
+                      <b>{x.residentName}</b>
+                      <small>{x.areaName || '—'} · {x.roomName || '—'} · {x.bedName || '—'}</small>
+                    </div>
+                    {x.redOpen ? (
+                      <span className="attention-status RED">🔴 {x.redOpen}</span>
+                    ) : x.yellowOpen ? (
+                      <span className="attention-status YELLOW">🟡 {x.yellowOpen}</span>
+                    ) : (
+                      <span className="resident-ok">Ổn</span>
+                    )}
+                  </div>
+
+                  <div className="resident-mini-stats">
+                    <span>📝 <b>{x.changeCount || 0}</b></span>
+                    <span>↗ <b>{x.handoverCount || 0}</b></span>
+                    <span>🚽 <b>{x.toiletingAbnormal || 0}</b></span>
+                    {(x.images?.length || 0) > 0 && <span>📷 <b>{x.images.length}</b></span>}
+                  </div>
+
+                  {x.lastContent && (
+                    <div className="resident-last-event">
+                      <small>{formatDateTime(x.lastEventAt)}</small>
+                      <p>{x.lastContent}</p>
+                    </div>
+                  )}
+
+                  <div className="resident-card-open">Xem diễn tiến →</div>
+                </button>
+              ))}
+            </div>
+
+            {!residents.length && <div className="empty">Không có NCT phù hợp trong khoảng đã chọn.</div>}
+          </div>
+        </>
+      )}
+    </section>
+  );
 }

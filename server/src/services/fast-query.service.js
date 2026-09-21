@@ -106,8 +106,29 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
   const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
   const db=getPool();
 
+  // 1) Lấy phát sinh trước theo ngày Việt Nam.
+  const careParams=[from,to];
+  let careWhere=`c.deleted=FALSE AND c.occurred_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND c.occurred_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+  if(effectiveBranch){careParams.push(effectiveBranch);careWhere+=` AND c.branch_id=$${careParams.length}`}
+
+  const toiletParams=[from,to];
+  let toiletWhere=`t.deleted=FALSE AND t.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND t.created_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+  if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
+
+  const [cr,tr]=await Promise.all([
+    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
+    db.query(`SELECT t.* FROM toileting_logs t WHERE ${toiletWhere} ORDER BY t.created_at DESC`,toiletParams)
+  ]);
+
+  const changes=cr.rows.map(mapCareRow);
+  const toilets=tr.rows.map(mapToiletRow);
+  const activityShiftIds=[...new Set([...changes.map(x=>String(x.shiftId||'')),...toilets.map(x=>String(x.shiftId||''))].filter(Boolean))];
+
+  // 2) Ca trong kỳ HOẶC ca đêm hôm trước nhưng có phát sinh trong kỳ.
   const shiftParams=[from,to];
-  let shiftWhere=`s.shift_date BETWEEN $1::date AND $2::date`;
+  let shiftWhere=`(s.shift_date BETWEEN $1::date AND $2::date`;
+  if(activityShiftIds.length){shiftParams.push(activityShiftIds);shiftWhere+=` OR s.id=ANY($${shiftParams.length}::text[])`}
+  shiftWhere+=`)`;
   if(effectiveBranch){shiftParams.push(effectiveBranch);shiftWhere+=` AND s.branch_id=$${shiftParams.length}`}
 
   const sr=await db.query(`
@@ -141,20 +162,8 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
     handoverRows=hr.rows;
   }
 
-  const careParams=[from,to];
-  let careWhere=`c.deleted=FALSE AND c.occurred_at >= $1::date AND c.occurred_at < ($2::date + INTERVAL '1 day')`;
-  if(effectiveBranch){careParams.push(effectiveBranch);careWhere+=` AND c.branch_id=$${careParams.length}`}
-
-  const toiletParams=[from,to];
-  let toiletWhere=`t.deleted=FALSE AND t.created_at >= $1::date AND t.created_at < ($2::date + INTERVAL '1 day')`;
-  if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
-
-  const [cr,tr]=await Promise.all([
-    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
-    db.query(`SELECT t.* FROM toileting_logs t WHERE ${toiletWhere} ORDER BY t.created_at DESC`,toiletParams)
-  ]);
-
-  const changes=cr.rows.map(mapCareRow),careIds=cr.rows.map(x=>x.id);
+  // 3) Ảnh thêm của các biến động trong kỳ.
+  const careIds=cr.rows.map(x=>x.id);
   if(careIds.length){
     const ir=await db.query(`SELECT * FROM care_record_images WHERE care_record_id=ANY($1::text[]) ORDER BY created_at`,[careIds]);
     const im=new Map();
@@ -162,21 +171,28 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
       const a=im.get(i.care_record_id)||[];
       let url=null;
       if(i.object_key){try{url=await getSignedWoundImageUrl(i.object_key,900)}catch{}}
-      a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||''});
+      a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||'',sizeBytes:i.size_bytes||null,createdAt:iso(i.created_at),expiresAt:iso(i.expires_at)});
       im.set(i.care_record_id,a);
     }
     for(const c of changes)c.woundImages=im.get(c.id)||[];
   }
 
   const residents=residentRows.map(x=>({id:x.id,shiftId:x.shift_id,residentId:x.bcare_resident_id,code:x.code_snapshot,fullName:x.full_name_snapshot,branchId:x.branch_id,branchName:x.branch_name_snapshot,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot,roomId:x.room_id_snapshot,roomName:x.room_name_snapshot,bedName:x.bed_name_snapshot,image:x.image_snapshot,derivedStatus:x.derived_status}));
-  const toilets=tr.rows.map(mapToiletRow);
 
+  // 4) Cảnh báo còn tồn: cố ý không giới hạn theo ngày để quản lý thấy việc chưa xử lý.
   const outstandingParams=[];
   let outstandingWhere=`c.deleted=FALSE AND c.attention_level IN ('RED','YELLOW') AND COALESCE(c.attention_status,'OPEN')<>'RESOLVED'`;
   if(effectiveBranch){outstandingParams.push(effectiveBranch);outstandingWhere+=` AND c.branch_id=$${outstandingParams.length}`}
   const or=await db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${outstandingWhere} ORDER BY CASE c.attention_level WHEN 'RED' THEN 0 ELSE 1 END,c.occurred_at DESC LIMIT 500`,outstandingParams);
 
-  return {shifts,residents,changes,toilets,handovers:handoverRows.map(x=>({id:x.id,shiftId:x.shift_id,confirmedAt:iso(x.confirmed_at),receivedAt:iso(x.received_at)})),outstanding:or.rows.map(mapCareRow)};
+  return {
+    shifts,
+    residents,
+    changes,
+    toilets,
+    handovers:handoverRows.map(x=>({id:x.id,shiftId:x.shift_id,confirmedAt:iso(x.confirmed_at),receivedAt:iso(x.received_at)})),
+    outstanding:or.rows.map(mapCareRow)
+  };
 }
 
 export async function getDashboardBundleFast(user,date){
@@ -188,24 +204,273 @@ export async function getStaffReportBundleFast(user,{from,to,branchId=''}){
   const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
   const db=getPool();
 
+  // 1) Lấy mọi phát sinh theo NGÀY GIỜ VIỆT NAM.
+  // Tránh lỗi record 00:00–06:59 giờ VN bị rơi sang ngày UTC hôm trước.
+  const careParams=[from,to];
+  let careWhere=`c.deleted=FALSE AND c.occurred_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND c.occurred_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+  if(effectiveBranch){careParams.push(effectiveBranch);careWhere+=` AND c.branch_id=$${careParams.length}`}
+
+  const toiletParams=[from,to];
+  let toiletWhere=`t.deleted=FALSE AND t.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND t.created_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+  if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
+
+  const [cr,tr,dir]=await Promise.all([
+    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
+    db.query(`SELECT t.* FROM toileting_logs t WHERE ${toiletWhere} ORDER BY t.created_at DESC`,toiletParams),
+    db.query(`SELECT sm.id,sm.user_id,u.username,sm.employee_code,sm.full_name,sm.branch_id,br.name_cache branch_name,COALESCE(u.role,sm.role_cache,'STAFF') role FROM staff_members sm LEFT JOIN users u ON u.id=sm.user_id LEFT JOIN bcare_branches_ref br ON br.bcare_branch_id=sm.branch_id WHERE sm.deleted=FALSE AND sm.active IS DISTINCT FROM FALSE ${effectiveBranch?'AND sm.branch_id=$1':''} ORDER BY sm.full_name`,effectiveBranch?[effectiveBranch]:[])
+  ]);
+
+  const changes=cr.rows.map(mapCareRow);
+  const toilets=tr.rows.map(mapToiletRow);
+  const activityShiftIds=[...new Set([...changes.map(x=>String(x.shiftId||'')),...toilets.map(x=>String(x.shiftId||''))].filter(Boolean))];
+
+  // 2) Báo cáo nhân viên phải thấy cả:
+  // - ca có shift_date nằm trong kỳ; HOẶC
+  // - ca đêm hôm trước nhưng có phát sinh trong kỳ đang xem.
+  const shiftParams=[from,to];
+  let shiftWhere=`(s.shift_date BETWEEN $1::date AND $2::date`;
+  if(activityShiftIds.length){shiftParams.push(activityShiftIds);shiftWhere+=` OR s.id=ANY($${shiftParams.length}::text[])`}
+  shiftWhere += `)`;
+  if(effectiveBranch){shiftParams.push(effectiveBranch);shiftWhere+=` AND s.branch_id=$${shiftParams.length}`}
+
+  const sr=await db.query(`
+    SELECT s.*,COUNT(DISTINCT r.id) resident_count,
+      COALESCE(json_agg(DISTINCT jsonb_build_object(
+        'id',sm.id,'userId',sm.user_id,'username',u.username,
+        'employeeCode',sm.employee_code,'fullName',sm.full_name,
+        'role',COALESCE(u.role,sm.role_cache,'STAFF'),
+        'areaId',sm.area_id_cache,'areaName',sm.area_name_cache,
+        'isPrimary',ss.is_primary_recorder
+      )) FILTER (WHERE sm.id IS NOT NULL),'[]'::json) assigned_staff
+    FROM shifts s
+    LEFT JOIN shift_staff ss ON ss.shift_id=s.id
+    LEFT JOIN staff_members sm ON sm.id=ss.staff_id
+    LEFT JOIN users u ON u.id=sm.user_id
+    LEFT JOIN shift_residents r ON r.shift_id=s.id
+    WHERE ${shiftWhere}
+    GROUP BY s.id
+    ORDER BY s.shift_date DESC,s.created_at DESC
+  `,shiftParams);
+
+  const shifts=sr.rows.map(mapShiftRow).filter(x=>scopeShift(user,x));
+  const shiftIds=shifts.map(x=>x.id);
+  const hr=shiftIds.length?await db.query(`SELECT * FROM handovers WHERE shift_id=ANY($1::text[])`,[shiftIds]):{rows:[]};
+
+  return {
+    shifts,
+    changes,
+    toilets,
+    handovers:hr.rows.map(x=>({id:x.id,shiftId:x.shift_id,confirmedAt:iso(x.confirmed_at),receivedAt:iso(x.received_at)})),
+    staffDirectory:dir.rows.map(x=>({id:String(x.id),userId:x.user_id||null,username:x.username||'',employeeCode:x.employee_code||'',fullName:x.full_name||'',branchId:x.branch_id||'',branchName:x.branch_name||'',role:x.role||'STAFF'}))
+  };
+}
+
+
+
+export async function getStaffCalendarFast(user,{from,to,branchId='',staffId=''}){
+  if(!await ready())return null;
+  const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
+  const db=getPool();
+  const staffFilter=String(staffId||'');
+
   const shiftParams=[from,to];
   let shiftWhere=`s.shift_date BETWEEN $1::date AND $2::date`;
   if(effectiveBranch){shiftParams.push(effectiveBranch);shiftWhere+=` AND s.branch_id=$${shiftParams.length}`}
-  const sr=await db.query(`SELECT s.*,COUNT(DISTINCT r.id) resident_count,COALESCE(json_agg(DISTINCT jsonb_build_object('id',sm.id,'userId',sm.user_id,'username',u.username,'employeeCode',sm.employee_code,'fullName',sm.full_name,'role',COALESCE(u.role,sm.role_cache,'STAFF'),'areaId',sm.area_id_cache,'areaName',sm.area_name_cache,'isPrimary',ss.is_primary_recorder)) FILTER (WHERE sm.id IS NOT NULL),'[]'::json) assigned_staff FROM shifts s LEFT JOIN shift_staff ss ON ss.shift_id=s.id LEFT JOIN staff_members sm ON sm.id=ss.staff_id LEFT JOIN users u ON u.id=sm.user_id LEFT JOIN shift_residents r ON r.shift_id=s.id WHERE ${shiftWhere} GROUP BY s.id ORDER BY s.shift_date DESC,s.created_at DESC`,shiftParams);
-  const shifts=sr.rows.map(mapShiftRow).filter(x=>scopeShift(user,x));
-  const shiftIds=shifts.map(x=>x.id);
+  if(staffFilter){shiftParams.push(staffFilter);shiftWhere+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=s.id AND sx.staff_id=$${shiftParams.length})`}
 
   const careParams=[from,to];
-  let careWhere=`c.deleted=FALSE AND c.occurred_at >= $1::date AND c.occurred_at < ($2::date + INTERVAL '1 day')`;
+  let careWhere=`c.deleted=FALSE AND c.occurred_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND c.occurred_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
   if(effectiveBranch){careParams.push(effectiveBranch);careWhere+=` AND c.branch_id=$${careParams.length}`}
+  if(staffFilter){careParams.push(staffFilter);careWhere+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=c.shift_id AND sx.staff_id=$${careParams.length})`}
 
-  const [cr,dir,hr]=await Promise.all([
-    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
-    db.query(`SELECT sm.id,sm.user_id,u.username,sm.employee_code,sm.full_name,sm.branch_id,br.name_cache branch_name,COALESCE(u.role,sm.role_cache,'STAFF') role FROM staff_members sm LEFT JOIN users u ON u.id=sm.user_id LEFT JOIN bcare_branches_ref br ON br.bcare_branch_id=sm.branch_id WHERE sm.deleted=FALSE AND sm.active IS DISTINCT FROM FALSE ${effectiveBranch?'AND sm.branch_id=$1':''} ORDER BY sm.full_name`,effectiveBranch?[effectiveBranch]:[]),
-    shiftIds.length?db.query(`SELECT * FROM handovers WHERE shift_id=ANY($1::text[])`,[shiftIds]):Promise.resolve({rows:[]})
+  const toiletParams=[from,to];
+  let toiletWhere=`t.deleted=FALSE AND t.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND t.created_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+  if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
+  if(staffFilter){toiletParams.push(staffFilter);toiletWhere+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=t.shift_id AND sx.staff_id=$${toiletParams.length})`}
+
+  const dirParams=[];
+  let dirWhere=`sm.deleted=FALSE AND sm.active IS DISTINCT FROM FALSE`;
+  if(effectiveBranch){dirParams.push(effectiveBranch);dirWhere+=` AND sm.branch_id=$${dirParams.length}`}
+
+  const [sr,cr,tr,dr]=await Promise.all([
+    db.query(`
+      SELECT s.shift_date::text AS date,
+             COUNT(DISTINCT s.id)::int AS shift_count,
+             COUNT(DISTINCT ss.staff_id)::int AS staff_count,
+             COUNT(DISTINCT s.id) FILTER (WHERE h.confirmed_at IS NOT NULL)::int AS handover_done,
+             COUNT(DISTINCT s.id) FILTER (WHERE h.confirmed_at IS NULL)::int AS handover_pending
+      FROM shifts s
+      LEFT JOIN shift_staff ss ON ss.shift_id=s.id
+      LEFT JOIN handovers h ON h.shift_id=s.id
+      WHERE ${shiftWhere}
+      GROUP BY s.shift_date
+      ORDER BY s.shift_date
+    `,shiftParams),
+    db.query(`
+      SELECT ((c.occurred_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::text AS date,
+             COUNT(*)::int AS change_count,
+             COUNT(*) FILTER (WHERE c.attention_level='RED')::int AS red_count,
+             COUNT(*) FILTER (WHERE c.attention_level='YELLOW')::int AS yellow_count,
+             COUNT(*) FILTER (WHERE c.attention_level IN ('RED','YELLOW') AND COALESCE(c.attention_status,'OPEN')<>'RESOLVED')::int AS open_count
+      FROM care_records c
+      WHERE ${careWhere}
+      GROUP BY ((c.occurred_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+      ORDER BY 1
+    `,careParams),
+    db.query(`
+      SELECT ((t.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::text AS date,
+             COUNT(*)::int AS toileting_count
+      FROM toileting_logs t
+      WHERE ${toiletWhere}
+      GROUP BY ((t.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+      ORDER BY 1
+    `,toiletParams),
+    db.query(`
+      SELECT sm.id,sm.employee_code,sm.full_name,sm.branch_id,COALESCE(br.name_cache,'') branch_name
+      FROM staff_members sm
+      LEFT JOIN bcare_branches_ref br ON br.bcare_branch_id=sm.branch_id
+      WHERE ${dirWhere}
+      ORDER BY sm.full_name,sm.employee_code
+    `,dirParams)
   ]);
 
-  return {shifts,changes:cr.rows.map(mapCareRow),handovers:hr.rows.map(x=>({id:x.id,shiftId:x.shift_id,confirmedAt:iso(x.confirmed_at),receivedAt:iso(x.received_at)})),staffDirectory:dir.rows.map(x=>({id:String(x.id),userId:x.user_id||null,username:x.username||'',employeeCode:x.employee_code||'',fullName:x.full_name||'',branchId:x.branch_id||'',branchName:x.branch_name||'',role:x.role||'STAFF'}))};
+  const days=new Map();
+  const ensure=date=>{if(!days.has(date))days.set(date,{date,shiftCount:0,staffCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,openCount:0,handoverDone:0,handoverPending:0});return days.get(date)};
+  for(const x of sr.rows){const d=ensure(x.date);d.shiftCount=Number(x.shift_count||0);d.staffCount=Number(x.staff_count||0);d.handoverDone=Number(x.handover_done||0);d.handoverPending=Number(x.handover_pending||0)}
+  for(const x of cr.rows){const d=ensure(x.date);d.changeCount=Number(x.change_count||0);d.redCount=Number(x.red_count||0);d.yellowCount=Number(x.yellow_count||0);d.openCount=Number(x.open_count||0)}
+  for(const x of tr.rows){const d=ensure(x.date);d.toiletingCount=Number(x.toileting_count||0)}
+  const rows=[...days.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const summary=rows.reduce((a,x)=>({
+    shiftCount:a.shiftCount+x.shiftCount,
+    changeCount:a.changeCount+x.changeCount,
+    toiletingCount:a.toiletingCount+x.toiletingCount,
+    redCount:a.redCount+x.redCount,
+    yellowCount:a.yellowCount+x.yellowCount,
+    handoverDone:a.handoverDone+x.handoverDone,
+    handoverPending:a.handoverPending+x.handoverPending,
+    staffCount:0
+  }),{shiftCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,handoverDone:0,handoverPending:0,staffCount:0});
+
+  const uniqueStaffParams=[from,to];
+  let uniqueStaffWhere=`s.shift_date BETWEEN $1::date AND $2::date`;
+  if(effectiveBranch){uniqueStaffParams.push(effectiveBranch);uniqueStaffWhere+=` AND s.branch_id=$${uniqueStaffParams.length}`}
+  if(staffFilter){uniqueStaffParams.push(staffFilter);uniqueStaffWhere+=` AND ss.staff_id=$${uniqueStaffParams.length}`}
+  const ur=await db.query(`SELECT COUNT(DISTINCT ss.staff_id)::int n FROM shifts s JOIN shift_staff ss ON ss.shift_id=s.id WHERE ${uniqueStaffWhere}`,uniqueStaffParams);
+  summary.staffCount=Number(ur.rows[0]?.n||0);
+
+  return {
+    from,to,branchId:effectiveBranch,staffId:staffFilter,
+    days:rows,
+    summary,
+    staffDirectory:dr.rows.map(x=>({id:String(x.id),employeeCode:x.employee_code||'',fullName:x.full_name||'',branchId:x.branch_id||'',branchName:x.branch_name||''}))
+  };
+}
+
+export async function getStaffDayDetailFast(user,{date,branchId='',staffId=''}){
+  if(!await ready())return null;
+  const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
+  const staffFilter=String(staffId||'');
+  const db=getPool();
+
+  const params=[date,date,date,date,date];
+  let where=`(
+    s.shift_date=$1::date
+    OR EXISTS(
+      SELECT 1 FROM care_records cx
+      WHERE cx.shift_id=s.id AND cx.deleted=FALSE
+        AND cx.occurred_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        AND cx.occurred_at < ((($3::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+    )
+    OR EXISTS(
+      SELECT 1 FROM toileting_logs tx
+      WHERE tx.shift_id=s.id AND tx.deleted=FALSE
+        AND tx.created_at >= ($4::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        AND tx.created_at < ((($5::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+    )
+  )`;
+  if(effectiveBranch){params.push(effectiveBranch);where+=` AND s.branch_id=$${params.length}`}
+  if(staffFilter){params.push(staffFilter);where+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=s.id AND sx.staff_id=$${params.length})`}
+
+  const sr=await db.query(`
+    SELECT s.*,
+      COUNT(DISTINCT rr.id) resident_count,
+      MAX(h.confirmed_at) handover_confirmed_at,
+      MAX(h.received_at) handover_received_at,
+      COALESCE(json_agg(DISTINCT jsonb_build_object(
+        'id',sm.id,'userId',sm.user_id,'username',u.username,
+        'employeeCode',sm.employee_code,'fullName',sm.full_name,
+        'role',COALESCE(u.role,sm.role_cache,'STAFF'),
+        'areaId',sm.area_id_cache,'areaName',sm.area_name_cache,
+        'isPrimary',ss.is_primary_recorder
+      )) FILTER (WHERE sm.id IS NOT NULL),'[]'::json) assigned_staff
+    FROM shifts s
+    LEFT JOIN shift_staff ss ON ss.shift_id=s.id
+    LEFT JOIN staff_members sm ON sm.id=ss.staff_id
+    LEFT JOIN users u ON u.id=sm.user_id
+    LEFT JOIN shift_residents rr ON rr.shift_id=s.id
+    LEFT JOIN handovers h ON h.shift_id=s.id
+    WHERE ${where}
+    GROUP BY s.id
+    ORDER BY s.shift_date,s.shift_type,s.created_at
+  `,params);
+
+  const shifts=sr.rows.map(mapShiftRow).filter(x=>scopeShift(user,x));
+  const shiftIds=shifts.map(x=>x.id);
+  if(!shiftIds.length)return {date,branchId:effectiveBranch,staffId:staffFilter,summary:{shiftCount:0,staffCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,handoverDone:0},shifts:[]};
+
+  const [cr,tr]=await Promise.all([
+    db.query(`
+      SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units,
+             (SELECT COUNT(*)::int FROM care_record_images i WHERE i.care_record_id=c.id) image_count
+      FROM care_records c
+      LEFT JOIN care_record_vitals v ON v.care_record_id=c.id
+      WHERE c.shift_id=ANY($1::text[]) AND c.deleted=FALSE
+        AND c.occurred_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        AND c.occurred_at < ((($3::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+      ORDER BY c.occurred_at DESC
+    `,[shiftIds,date,date]),
+    db.query(`
+      SELECT t.* FROM toileting_logs t
+      WHERE t.shift_id=ANY($1::text[]) AND t.deleted=FALSE
+        AND t.created_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        AND t.created_at < ((($3::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+      ORDER BY t.created_at DESC
+    `,[shiftIds,date,date])
+  ]);
+
+  const changes=cr.rows.map(x=>({...mapCareRow(x),imageCount:Number(x.image_count||0)}));
+  const toilets=tr.rows.map(mapToiletRow);
+  const sourceById=new Map(sr.rows.map(x=>[String(x.id),x]));
+  const resultShifts=shifts.map(shift=>{
+    const source=sourceById.get(String(shift.id))||{};
+    const sc=changes.filter(x=>String(x.shiftId)===String(shift.id));
+    const st=toilets.filter(x=>String(x.shiftId)===String(shift.id));
+    return {
+      ...shift,
+      staff:shift.assignedStaff||[],
+      handover:{confirmedAt:iso(source.handover_confirmed_at),receivedAt:iso(source.handover_received_at)},
+      changes:sc,
+      toilets:st,
+      changeCount:sc.length,
+      toiletingCount:st.length,
+      redCount:sc.filter(x=>x.attentionLevel==='RED').length,
+      yellowCount:sc.filter(x=>x.attentionLevel==='YELLOW').length
+    };
+  });
+  const staffSet=new Set(resultShifts.flatMap(x=>(x.staff||[]).map(p=>String(p.id))));
+  return {
+    date,branchId:effectiveBranch,staffId:staffFilter,
+    summary:{
+      shiftCount:resultShifts.length,
+      staffCount:staffSet.size,
+      changeCount:changes.length,
+      toiletingCount:toilets.length,
+      redCount:changes.filter(x=>x.attentionLevel==='RED').length,
+      yellowCount:changes.filter(x=>x.attentionLevel==='YELLOW').length,
+      handoverDone:resultShifts.filter(x=>x.handover?.confirmedAt).length
+    },
+    shifts:resultShifts
+  };
 }
 
 export async function createShiftFast(user,body,{branchName='',assignedStaff=[],primaryRecorder}={}){

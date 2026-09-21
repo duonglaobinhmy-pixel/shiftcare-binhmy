@@ -7,7 +7,7 @@ import { branchInfo } from '../config/branches.js';
 import { audit } from '../services/audit.service.js';
 import { notifyUrgentCreated,notifyUrgentResolved } from '../services/telegram.service.js';
 import { sanitizeWoundImages } from '../services/media-retention.service.js';
-import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
+import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
 
 const router = Router();
 router.use(authenticate);
@@ -40,36 +40,150 @@ function isAttentionChange(x){return attentionLevel(x)!==null}
 function shiftResidentCount(store,shiftId){return store.shiftResidents.filter(x=>x.shiftId===shiftId).length}
 const bowelStatuses=new Set(['NORMAL','CONSTIPATION','DIARRHEA','OTHER']);
 const urineStatuses=new Set(['NORMAL','SONDE','CATHETER','DIAPER','OTHER','LOW','NONE']);
-const vitalRules={pulse:[20,250,'Mạch'],temperature:[30,45,'Nhiệt độ'],bpSys:[40,300,'Huyết áp tâm thu'],bpDia:[20,200,'Huyết áp tâm trương'],spo2:[1,100,'SpO2'],respiratoryRate:[1,100,'Nhịp thở']};
+const careCategories=new Set(['HEALTH','NUTRITION','INCIDENT','PSYCHOLOGY','SKIN','OTHER']);
+const careEventTypes=new Set(['OBSERVATION','FALL','PAIN','MEAL','RESPIRATORY','SKIN','BEHAVIOR','HOSPITAL','FAMILY','OTHER']);
+const carePriorities=new Set(['LOW','MEDIUM','HIGH']);
+const vitalRules={
+  pulse:[20,250,'Mạch'],
+  temperature:[30,45,'Nhiệt độ'],
+  bpSys:[40,300,'Huyết áp tâm thu'],
+  bpDia:[20,200,'Huyết áp tâm trương'],
+  spo2:[1,100,'SpO₂'],
+  respiratoryRate:[1,50,'Nhịp thở'],
+  bloodGlucose:[20,600,'Đường huyết']
+};
+
 function vitalAlerts(v){
   const rows=[],add=(field,level,message)=>rows.push({field,level,message});
-  if(v.pulse!==null){if(v.pulse<=40||v.pulse>=131)add('pulse','RED',`Mạch ${v.pulse} lần/phút`);else if(v.pulse<=50||v.pulse>=91)add('pulse','YELLOW',`Mạch ${v.pulse} lần/phút`)}
-  if(v.temperature!==null){if(v.temperature<=35||v.temperature>=39.1)add('temperature','RED',`Nhiệt độ ${v.temperature}°C`);else if(v.temperature<=36||v.temperature>=38.1)add('temperature','YELLOW',`Nhiệt độ ${v.temperature}°C`)}
-  if(v.bpSys!==null){if(v.bpSys<=90||v.bpSys>=220)add('bpSys','RED',`Huyết áp tâm thu ${v.bpSys} mmHg`);else if(v.bpSys<=110)add('bpSys','YELLOW',`Huyết áp tâm thu ${v.bpSys} mmHg`)}
-  if((v.bpSys!==null&&v.bpSys>180)||(v.bpDia!==null&&v.bpDia>120))add('bpSys','RED',`Huyết áp ${v.bpSys??'—'}/${v.bpDia??'—'} mmHg – cần đo lại và kiểm tra triệu chứng`);
-  if(v.spo2!==null){if(v.spo2<=91)add('spo2','RED',`SpO₂ ${v.spo2}%`);else if(v.spo2<=95)add('spo2','YELLOW',`SpO₂ ${v.spo2}%`)}
-  if(v.respiratoryRate!==null){if(v.respiratoryRate<=8||v.respiratoryRate>=25)add('respiratoryRate','RED',`Nhịp thở ${v.respiratoryRate} lần/phút`);else if(v.respiratoryRate<=11||v.respiratoryRate>=21)add('respiratoryRate','YELLOW',`Nhịp thở ${v.respiratoryRate} lần/phút`)}
+
+  if(v.pulse!==null){
+    if(v.pulse<50||v.pulse>=120)add('pulse','RED',`Mạch ${v.pulse} lần/phút`);
+    else if(v.pulse<60||v.pulse>100)add('pulse','YELLOW',`Mạch ${v.pulse} lần/phút`);
+  }
+  if(v.temperature!==null){
+    if(v.temperature<36||v.temperature>=39)add('temperature','RED',`Nhiệt độ ${v.temperature}°C`);
+    else if(v.temperature<37||v.temperature>=38)add('temperature','YELLOW',`Nhiệt độ ${v.temperature}°C`);
+  }
+  if(v.bpSys!==null){
+    if(v.bpSys<90||v.bpSys>=180)add('bpSys','RED',`Huyết áp tâm thu ${v.bpSys} mmHg`);
+    else if(v.bpSys<100||v.bpSys>=140)add('bpSys','YELLOW',`Huyết áp tâm thu ${v.bpSys} mmHg`);
+  }
+  if(v.bpDia!==null){
+    if(v.bpDia<50||v.bpDia>=110)add('bpDia','RED',`Huyết áp tâm trương ${v.bpDia} mmHg`);
+    else if(v.bpDia<60||v.bpDia>=90)add('bpDia','YELLOW',`Huyết áp tâm trương ${v.bpDia} mmHg`);
+  }
+  if(v.spo2!==null){
+    if(v.spo2<90)add('spo2','RED',`SpO₂ ${v.spo2}%`);
+    else if(v.spo2<95)add('spo2','YELLOW',`SpO₂ ${v.spo2}%`);
+  }
+  if(v.respiratoryRate!==null){
+    if(v.respiratoryRate<10||v.respiratoryRate>=25)add('respiratoryRate','RED',`Nhịp thở ${v.respiratoryRate} lần/phút`);
+    else if(v.respiratoryRate<16||v.respiratoryRate>=21)add('respiratoryRate','YELLOW',`Nhịp thở ${v.respiratoryRate} lần/phút`);
+  }
+  if(v.bloodGlucose!==null){
+    if(v.bloodGlucose<70||v.bloodGlucose>=200)add('bloodGlucose','RED',`Đường huyết ${v.bloodGlucose} mg/dL`);
+    else if(v.bloodGlucose<80||v.bloodGlucose>=127)add('bloodGlucose','YELLOW',`Đường huyết ${v.bloodGlucose} mg/dL`);
+  }
+
   return rows;
 }
-function normalizeVitals(vitals){
-  if(!vitals)return null;
-  const normalized={concern:!!vitals.concern};
+
+function normalizeVitals(vitals,insulin){
+  if(!vitals&&!insulin?.given)return null;
+
+  const normalized={concern:!!vitals?.concern};
+
   for(const [field,[min,max,label]] of Object.entries(vitalRules)){
-    if(vitals[field]===''||vitals[field]===null||vitals[field]===undefined){normalized[field]=null;continue}
-    const value=Number(vitals[field]);
-    if(!Number.isFinite(value)||value<min||value>max)throw new Error(`${label} phải là số từ ${min} đến ${max}.`);
+    const raw=vitals?.[field];
+
+    if(raw===''||raw===null||raw===undefined){
+      normalized[field]=null;
+      continue;
+    }
+
+    if(typeof raw==='boolean'||typeof raw==='object'){
+      throw new Error(`${label} phải là giá trị số.`);
+    }
+
+    const text=String(raw).trim();
+
+    // Không nhận chữ, e/E, dấu +/-, hoặc ký tự lạ.
+    if(!/^\d+(?:\.\d+)?$/.test(text)){
+      throw new Error(`${label} chỉ được nhập số.`);
+    }
+
+    const value=Number(text);
+
+    if(!Number.isFinite(value)||value<min||value>max){
+      throw new Error(`${label} phải từ ${min} đến ${max}.`);
+    }
+
     normalized[field]=value;
   }
-  if((normalized.bpSys===null)!==(normalized.bpDia===null))throw new Error('Cần nhập đủ cả huyết áp tâm thu và tâm trương.');
-  if(normalized.bpSys!==null&&normalized.bpSys<=normalized.bpDia)throw new Error('Huyết áp tâm thu phải lớn hơn huyết áp tâm trương.');
+
+  if((normalized.bpSys===null)!==(normalized.bpDia===null)){
+    throw new Error('Cần nhập đủ cả huyết áp tâm thu và tâm trương.');
+  }
+
+  if(normalized.bpSys!==null&&normalized.bpSys<=normalized.bpDia){
+    throw new Error('Huyết áp tâm thu phải lớn hơn huyết áp tâm trương.');
+  }
+
+  normalized.insulinDoseUnits=null;
+
+  if(insulin?.given){
+    const rawDose=insulin.dose;
+
+    if(rawDose===''||rawDose===null||rawDose===undefined){
+      throw new Error('Đã chọn tiêm insulin thì phải nhập liều insulin.');
+    }
+
+    const doseText=String(rawDose).trim();
+
+    if(!/^\d+(?:\.\d+)?$/.test(doseText)){
+      throw new Error('Liều insulin chỉ được nhập số.');
+    }
+
+    const dose=Number(doseText);
+
+    if(!Number.isFinite(dose)||dose<=0){
+      throw new Error('Liều insulin phải lớn hơn 0 IU.');
+    }
+
+    normalized.insulinDoseUnits=dose;
+  }
+
   normalized.alerts=vitalAlerts(normalized);
-  normalized.alertLevel=normalized.alerts.some(x=>x.level==='RED')?'RED':normalized.alerts.some(x=>x.level==='YELLOW')?'YELLOW':'NORMAL';
+  normalized.alertLevel=normalized.alerts.some(x=>x.level==='RED')
+    ?'RED'
+    :normalized.alerts.some(x=>x.level==='YELLOW')
+      ?'YELLOW'
+      :'NORMAL';
+
   normalized.concern=normalized.concern||normalized.alertLevel==='RED';
+
   if(normalized.alertLevel==='RED'){
-    const urgent=vitals.urgent||{};
-    if(!urgent.remeasured||!String(urgent.notifiedTo||'').trim()||!String(urgent.action||'').trim())throw new Error('Cảnh báo Đỏ: bắt buộc xác nhận đo lại, người đã báo và hành động xử lý.');
-    normalized.urgent={remeasured:true,notifiedTo:String(urgent.notifiedTo).trim(),action:String(urgent.action).trim(),symptoms:String(urgent.symptoms||'').trim()};
-  }else normalized.urgent=null;
+    const urgent=vitals?.urgent||{};
+    const confirmed=urgent.confirmed===true||urgent.remeasured===true;
+    const action=String(urgent.action||'').trim();
+
+    if(!confirmed){
+      throw new Error('Cảnh báo Đỏ: cần xác nhận chỉ số vừa ghi và tình trạng NCT.');
+    }
+
+    if(!action){
+      throw new Error('Cảnh báo Đỏ: cần nhập xử lý / hành động đã thực hiện.');
+    }
+
+    normalized.urgent={
+      confirmed:true,
+      action,
+      symptoms:String(urgent.symptoms||'').trim()
+    };
+  }else{
+    normalized.urgent=null;
+  }
+
   return normalized;
 }
 
@@ -122,7 +236,7 @@ router.get('/residents/:residentId/open-shift',async(req,res)=>{
   const s=await getStore();const roster=s.shiftResidents.filter(x=>x.residentId===req.params.residentId&&visibleByScope(req.user,x));const ids=new Set(roster.map(x=>x.shiftId));const shifts=s.shifts.filter(x=>ids.has(x.id)&&x.status==='OPEN'&&visibleByScope(req.user,x)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));res.json({success:true,data:shifts[0]||null});
 });
 
-router.post('/residents/:residentId/ensure-open-shift',allowRoles('ADMIN','BRANCH_DIRECTOR','CARE_SHARED'),async(req,res)=>{
+router.post('/residents/:residentId/ensure-open-shift',allowRoles('ADMIN','CAREGIVER'),async(req,res)=>{
   const resident=req.body?.resident||{};
   if(!resident.id||resident.id!==req.params.residentId)return res.status(400).json({success:false,message:'Thiếu thông tin NCT.'});
   if(!visibleByScope(req.user,resident))return res.status(403).json({success:false,message:'NCT ngoài phạm vi được giao.'});
@@ -160,15 +274,15 @@ router.get('/dashboard',allowPermission('DASHBOARD.VIEW'),async(req,res)=>{
 router.get('/shifts',allowPermission('SHIFT.VIEW'),async(req,res)=>{const fast=await getShiftsFast(req.user);if(fast)return res.json({success:true,data:fast});const s=await getStore();let rows=s.shifts.filter(x=>canAccessShift(req.user,x));rows=rows.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(x=>({...x,residentCount:shiftResidentCount(s,x.id)}));res.json({success:true,data:rows})});
 router.get('/shifts/staff-options',allowPermission('SHIFT.CREATE','SHIFT.UPDATE'),async(req,res)=>{const requestedBranchId=String(req.query.branchId||''),branchId=req.user.role==='ADMIN'?requestedBranchId:String(req.user.branchId||'');if(!branchId)return res.status(400).json({success:false,message:'Thiếu cơ sở.'});const fast=await getStaffOptionsFast(branchId);if(fast!==null)return res.json({success:true,data:fast});const store=await getStore();const staff=(store.staffMembers||[]).filter(x=>x.active!==false&&!x.deleted&&String(x.branchId)===String(branchId)).map(x=>({id:x.id,userId:x.userId||null,username:x.username||'',employeeCode:x.employeeCode,fullName:x.fullName,role:x.role||'STAFF',areaId:x.areaId||null,areaName:x.areaName||''}));res.json({success:true,data:staff})});
 router.post('/shifts',allowPermission('SHIFT.CREATE'),async(req,res)=>{try{res.status(201).json({success:true,data:await createShift(req.user,req.body||{})})}catch(e){res.status(400).json({success:false,message:e.message})}});
-router.patch('/shifts/:id/staff',allowPermission('SHIFT.UPDATE'),async(req,res)=>{const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao; không được đổi danh sách người trực đã dùng để đối chất.'});const requestedIds=[...new Set((Array.isArray(req.body?.assignedStaffIds)?req.body.assignedStaffIds:[]).map(String).filter(Boolean))];const users=await getUsers();const assignedStaff=(s.staffMembers||[]).filter(x=>requestedIds.includes(x.id)&&x.active!==false&&!x.deleted&&String(x.branchId)===String(shift.branchId)).map(x=>{const linked=users.find(u=>u.active&&u.branchId===shift.branchId&&String(u.employeeCode||'').toLowerCase()===String(x.employeeCode).toLowerCase());return{id:x.id,userId:linked?.id||x.userId||null,username:linked?.username||x.username||'',employeeCode:x.employeeCode,fullName:x.fullName,role:linked?.role||x.role||'STAFF',areaId:linked?.areaId||x.areaId||null,areaName:linked?.areaName||x.areaName||''}});if(assignedStaff.length<2||assignedStaff.length>3||assignedStaff.length!==requestedIds.length)return res.status(422).json({success:false,message:'Mỗi ca phải chọn từ 2 đến 3 nhân viên đang hoạt động trong danh sách cơ sở.'});const primaryRecorder=assignedStaff.find(x=>x.id===String(req.body?.primaryRecorderId||''));if(!primaryRecorder)return res.status(422).json({success:false,message:'Phải chọn một người ghi chính trong danh sách nhân sự trực ca.'});let updated={...shift,assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,staffUpdatedAt:new Date().toISOString(),staffUpdatedBy:req.user.sub};const fastUpdated=await updateShiftStaffFast(shift.id,req.user,{assignedStaff,primaryRecorder});if(!fastUpdated)await updateStore(store=>{const row=store.shifts.find(x=>x.id===shift.id);Object.assign(row,updated)});await audit(req.user,'SHIFT_STAFF_UPDATE','shift',shift.id,{assignedStaffIds:updated.assignedStaffIds,assignedStaffNames:updated.assignedStaffNames,primaryRecorderId:updated.primaryRecorderId});res.json({success:true,data:updated})});
+router.patch('/shifts/:id/staff',allowPermission('SHIFT.UPDATE'),async(req,res)=>{const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao; không được đổi danh sách người trực đã dùng để đối chất.'});const requestedIds=[...new Set((Array.isArray(req.body?.assignedStaffIds)?req.body.assignedStaffIds:[]).map(String).filter(Boolean))];const users=await getUsers();const assignedStaff=(s.staffMembers||[]).filter(x=>requestedIds.includes(x.id)&&x.active!==false&&!x.deleted&&String(x.branchId)===String(shift.branchId)).map(x=>{const linked=users.find(u=>u.active&&u.branchId===shift.branchId&&String(u.employeeCode||'').toLowerCase()===String(x.employeeCode).toLowerCase());return{id:x.id,userId:linked?.id||x.userId||null,username:linked?.username||x.username||'',employeeCode:x.employeeCode,fullName:x.fullName,role:linked?.role||x.role||'STAFF',areaId:linked?.areaId||x.areaId||null,areaName:linked?.areaName||x.areaName||''}});if(assignedStaff.length<2||assignedStaff.length!==requestedIds.length)return res.status(422).json({success:false,message:'Mỗi ca phải chọn tối thiểu 2 nhân viên đang hoạt động trong danh sách cơ sở.'});const primaryRecorder=assignedStaff.find(x=>x.id===String(req.body?.primaryRecorderId||''));if(!primaryRecorder)return res.status(422).json({success:false,message:'Phải chọn một người ghi chính trong danh sách nhân sự trực ca.'});let updated={...shift,assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,staffUpdatedAt:new Date().toISOString(),staffUpdatedBy:req.user.sub};const fastUpdated=await updateShiftStaffFast(shift.id,req.user,{assignedStaff,primaryRecorder});if(!fastUpdated)await updateStore(store=>{const row=store.shifts.find(x=>x.id===shift.id);Object.assign(row,updated)});await audit(req.user,'SHIFT_STAFF_UPDATE','shift',shift.id,{assignedStaffIds:updated.assignedStaffIds,assignedStaffNames:updated.assignedStaffNames,primaryRecorderId:updated.primaryRecorderId});res.json({success:true,data:updated})});
 router.post('/shifts/:id/refresh-roster',allowPermission('SHIFT.UPDATE'),async(req,res)=>{
   const fastRows=await getShiftsFast(req.user);let shift=fastRows?.find(x=>x.id===req.params.id);if(!fastRows){const s=await getStore();shift=s.shifts.find(x=>x.id===req.params.id&&visibleByScope(req.user,x));}
   if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã khóa/bàn giao nên không thể nạp lại roster.'});
   try{const residentCount=await loadRosterForShift(shift,{replace:true});await audit(req.user,'SHIFT_ROSTER_REFRESH','shift',shift.id,{residentCount});res.json({success:true,data:{residentCount}})}catch(e){res.status(502).json({success:false,message:`Không nạp được NCT từ BCARE: ${e.message}`})}
 });
 router.delete('/shifts/:id',allowPermission('SHIFT.DELETE'),async(req,res)=>{
-  const fast=await deleteShiftFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(fast.blocked)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${fast.counts.changes} biến động, ${fast.counts.toileting} tiêu/tiểu, ${fast.counts.handovers} bàn giao). Hãy giữ lịch sử ca.`});await audit(req.user,'SHIFT_DELETE','shift',req.params.id,{shiftDate:fast.shift.shiftDate,shiftType:fast.shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:fast.counts});return res.json({success:true,deletedRecords:fast.counts});}
-  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});const changeCount=s.changeLogs.filter(x=>x.shiftId===shift.id).length,toiletCount=s.toiletingLogs.filter(x=>x.shiftId===shift.id).length,handoverCount=s.handovers.filter(x=>x.shiftId===shift.id).length;if(changeCount||toiletCount||handoverCount)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${changeCount} biến động, ${toiletCount} tiêu/tiểu, ${handoverCount} bàn giao). Hãy giữ lịch sử ca.`});await updateStore(store=>{store.shifts=store.shifts.filter(x=>x.id!==shift.id);store.shiftResidents=store.shiftResidents.filter(x=>x.shiftId!==shift.id)});await audit(req.user,'SHIFT_DELETE','shift',shift.id,{shiftDate:shift.shiftDate,shiftType:shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}});res.json({success:true,deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}})});
+  const fast=await deleteShiftFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(fast.blocked)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${fast.counts.changes} biến động, ${fast.counts.toileting} tiêu/tiểu, ${fast.counts.handovers} bàn giao). Chỉ Admin mới được xóa ca có dữ liệu.`});await audit(req.user,'SHIFT_DELETE','shift',req.params.id,{shiftDate:fast.shift.shiftDate,shiftType:fast.shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:fast.counts});return res.json({success:true,deletedRecords:fast.counts});}
+  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});const changeCount=s.changeLogs.filter(x=>x.shiftId===shift.id).length,toiletCount=s.toiletingLogs.filter(x=>x.shiftId===shift.id).length,handoverCount=s.handovers.filter(x=>x.shiftId===shift.id).length;if((changeCount||toiletCount||handoverCount)&&req.user.role!=='ADMIN')return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${changeCount} biến động, ${toiletCount} tiêu/tiểu, ${handoverCount} bàn giao). Chỉ Admin mới được xóa ca có dữ liệu.`});await updateStore(store=>{store.shifts=store.shifts.filter(x=>x.id!==shift.id);store.shiftResidents=store.shiftResidents.filter(x=>x.shiftId!==shift.id);if(req.user.role==='ADMIN'){store.changeLogs=store.changeLogs.filter(x=>x.shiftId!==shift.id);store.toiletingLogs=store.toiletingLogs.filter(x=>x.shiftId!==shift.id);store.handovers=store.handovers.filter(x=>x.shiftId!==shift.id)}});await audit(req.user,'SHIFT_DELETE','shift',shift.id,{shiftDate:shift.shiftDate,shiftType:shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}});res.json({success:true,deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}})});
 router.get('/shifts/:id',allowPermission('SHIFT.VIEW'),async(req,res)=>{
   const fast=await getShiftDetailFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});return res.json({success:true,data:fast});}
   const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});const residents=s.shiftResidents.filter(x=>x.shiftId===shift.id&&visibleByScope(req.user,x));const changes=s.changeLogs.filter(x=>x.shiftId===shift.id&&!x.deleted).map(withAttention);const toileting=s.toiletingLogs.filter(x=>x.shiftId===shift.id&&!x.deleted);const alertIds=new Set(changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').map(x=>x.residentId));const alerts=residents.filter(x=>alertIds.has(x.residentId));res.json({success:true,data:{shift,residents,changes,toileting,alerts}});
@@ -178,12 +292,12 @@ router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
   const inRoster=s.shiftResidents.some(x=>x.shiftId===shift.id&&x.residentId===b.residentId&&visibleByScope(req.user,x));if(!inRoster)return res.status(422).json({success:false,message:'NCT không thuộc roster ca này.'});
   if(!b.residentId||!b.category||!String(b.content||'').trim())return res.status(400).json({success:false,message:'Thiếu NCT, nhóm biến động hoặc nội dung'});if(b.requiresHandover&&!String(b.followUp||'').trim())return res.status(422).json({success:false,message:'Đã chọn cần bàn giao thì phải nhập việc ca sau cần biết/làm'});
   const occurredAt=b.occurredAt?new Date(b.occurredAt):new Date();if(Number.isNaN(occurredAt.getTime())||occurredAt.getTime()>Date.now()+5*60*1000)return res.status(422).json({success:false,message:'Thời điểm ghi nhận không hợp lệ hoặc đang ở tương lai.'});
-  let vitals,woundImages;try{vitals=normalizeVitals(b.vitals);woundImages=sanitizeWoundImages(b.woundImages)}catch(e){return res.status(422).json({success:false,message:e.message})}
+  let vitals,woundImages;try{vitals=normalizeVitals(b.vitals,b.insulin);woundImages=sanitizeWoundImages(b.woundImages)}catch(e){return res.status(422).json({success:false,message:e.message})}
   const row={id:uuid(),clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:b.residentName||'',category:b.category,eventType:b.eventType||'OBSERVATION',priority:vitals?.alertLevel==='RED'?'HIGH':(['LOW','MEDIUM','HIGH'].includes(b.priority)?b.priority:'MEDIUM'),occurredAt:occurredAt.toISOString(),content:String(b.content).trim(),intervention:b.intervention||'',notifiedTo:b.notifiedTo||'',vitals,woundImages,requiresHandover:!!b.requiresHandover,followUp:b.followUp||'',branchId:shift.branchId,branchName:shift.branchName||'',areaId:b.areaId||shift.areaId||null,areaName:b.areaName||'',roomName:b.roomName||'',bedName:b.bedName||'',image:b.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};row.attentionLevel=attentionLevel(row);row.attentionStatus=row.attentionLevel?'OPEN':null;
   await updateStore(store=>{store.changeLogs.unshift(row);const sr=store.shiftResidents.find(x=>x.shiftId===row.shiftId&&x.residentId===row.residentId);if(sr)sr.derivedStatus=row.requiresHandover?'REQUIRES_HANDOVER':'RECORDED_CHANGE'});await audit(req.user,'CHANGE_CREATE','change_log',row.id,{residentId:row.residentId,category:row.category,priority:row.priority});if(row.attentionLevel==='RED')void notifyUrgentCreated(row).then(result=>result.sent&&audit(req.user,'TELEGRAM_URGENT_SENT','change_log',row.id,{messageId:result.messageId})).catch(error=>console.error('Telegram urgent alert failed:',error.message));res.status(201).json({success:true,data:row});
 });
 router.patch('/change-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)=>{
-  const b=req.body||{};let found=null,shift=null,forbidden=false,locked=false;await updateStore(store=>{found=store.changeLogs.find(x=>x.id===req.params.id&&!x.deleted);if(!found)return;shift=store.shifts.find(x=>x.id===found.shiftId);if(!shift)return;if(!canAccessShift(req.user,shift)){forbidden=true;return}locked=shift.status!=='OPEN';if(locked&&req.user.role!=='ADMIN'){forbidden=true;return}if(locked&&!String(b.overrideReason||'').trim())return;if(!visibleByScope(req.user,found)){forbidden=true;return}if(b.category)found.category=b.category;if(typeof b.content==='string'&&b.content.trim())found.content=b.content.trim();if(typeof b.requiresHandover==='boolean')found.requiresHandover=b.requiresHandover;if(typeof b.followUp==='string')found.followUp=b.followUp;if(Array.isArray(b.woundImages))found.woundImages=sanitizeWoundImages(b.woundImages);found.updatedBy=req.user.sub;found.updatedByName=req.user.fullName;found.updatedAt=new Date().toISOString();if(locked){found.adminOverrideReason=String(b.overrideReason).trim();found.adminOverriddenAt=found.updatedAt;found.adminOverriddenBy=req.user.sub}});
+  const b=req.body||{};let found=null,shift=null,forbidden=false,locked=false;await updateStore(store=>{found=store.changeLogs.find(x=>x.id===req.params.id&&!x.deleted);if(!found)return;shift=store.shifts.find(x=>x.id===found.shiftId);if(!shift)return;if(!canAccessShift(req.user,shift)){forbidden=true;return}locked=shift.status!=='OPEN';if(locked&&req.user.role!=='ADMIN'){forbidden=true;return}if(locked&&!String(b.overrideReason||'').trim())return;if(req.user.role==='CAREGIVER'&&found.createdBy!==req.user.sub){forbidden=true;return}if(!visibleByScope(req.user,found)){forbidden=true;return}if(b.category)found.category=b.category;if(typeof b.content==='string'&&b.content.trim())found.content=b.content.trim();if(typeof b.requiresHandover==='boolean')found.requiresHandover=b.requiresHandover;if(typeof b.followUp==='string')found.followUp=b.followUp;if(Array.isArray(b.woundImages))found.woundImages=sanitizeWoundImages(b.woundImages);found.updatedBy=req.user.sub;found.updatedByName=req.user.fullName;found.updatedAt=new Date().toISOString();if(locked){found.adminOverrideReason=String(b.overrideReason).trim();found.adminOverriddenAt=found.updatedAt;found.adminOverriddenBy=req.user.sub}});
   if(!found)return res.status(404).json({success:false,message:'Không tìm thấy bản ghi'});if(!shift)return res.status(422).json({success:false,message:'Không tìm thấy ca của bản ghi'});if(forbidden)return res.status(403).json({success:false,message:locked?'Ca đã ký bàn giao; chỉ Admin được sửa bản ghi.':'Không có quyền sửa bản ghi này'});if(locked&&!String(b.overrideReason||'').trim())return res.status(422).json({success:false,message:'Admin phải nhập lý do khi sửa dữ liệu sau bàn giao.'});if(found.requiresHandover&&!String(found.followUp||'').trim())return res.status(422).json({success:false,message:'Cần nhập nội dung bàn giao'});await audit(req.user,locked?'CHANGE_ADMIN_OVERRIDE_UPDATE':'CHANGE_UPDATE','change_log',found.id,{residentId:found.residentId,overrideReason:locked?String(b.overrideReason).trim():undefined});res.json({success:true,data:found});
 });
 router.post('/change-logs/:id/resolve',allowPermission('CARE.UPDATE'),async(req,res)=>{
@@ -206,7 +320,7 @@ router.patch('/toileting-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)
     locked=shift.status!=='OPEN';
     if(locked&&req.user.role!=='ADMIN'){forbidden=true;return}
     if(locked&&!String(b.overrideReason||'').trim()){missingOverride=true;return}
-    
+    if(req.user.role==='CAREGIVER'&&found.createdBy!==req.user.sub){forbidden=true;return}
     const bowelStatus=b.bowelStatus||found.bowelStatus||'NORMAL';
     const urineStatus=b.urineStatus||found.urineStatus||'NORMAL';
     if(!bowelStatuses.has(bowelStatus)||!urineStatuses.has(urineStatus))return;
@@ -246,7 +360,7 @@ router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const range=reportRange(req.query),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
   const fast=await getReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
   const base=fast?{shifts:fast.shifts,shiftResidents:fast.residents,changeLogs:fast.changes,toiletingLogs:fast.toilets,outstanding:fast.outstanding}:await getStore();
-  const shifts=base.shifts.filter(x=>range.inRange(x.shiftDate)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x));
+  const shifts=fast?base.shifts:base.shifts.filter(x=>range.inRange(x.shiftDate)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x));
   const ids=new Set(shifts.map(x=>x.id));
   const residents=base.shiftResidents.filter(x=>ids.has(x.shiftId)&&visibleByScope(req.user,x));
   const changes=(fast?base.changeLogs:base.changeLogs.filter(x=>!x.deleted&&inEventRange(x.occurredAt||x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x))).map(withAttention);
@@ -268,6 +382,25 @@ router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const residentSummaries=[...residentMap.values()].sort((a,b)=>(b.redOpen-a.redOpen)||(b.yellowOpen-a.yellowOpen)||(b.changeCount-a.changeCount)||String(a.residentName).localeCompare(String(b.residentName),'vi'));
   res.json({success:true,data:{from:range.from,to:range.to,branchId,shifts:shifts.length,uniqueResidents:residentSummaries.length,changes:changes.length,openRed:outstanding.filter(x=>x.attentionLevel==='RED').length,openYellow:outstanding.filter(x=>x.attentionLevel==='YELLOW').length,resolvedToday:resolvedInRange.length,resolutionRate:attentionInRange.length?Math.round(resolvedInRange.length*100/attentionInRange.length):100,requiresHandover:changes.filter(x=>x.requiresHandover).length,toiletingLogs:toilets.length,toiletingAbnormal:toilets.filter(x=>x.bowelStatus!=='NORMAL'||x.urineStatus!=='NORMAL').length,byCategory,byArea,branchSummaries,shiftDetails,residentSummaries,outstanding,details:[...changes].sort((a,b)=>String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt))),toiletingDetails:[...toilets].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}});
 });
+
+router.get('/reports/staff/calendar',allowPermission('REPORT.VIEW'),async(req,res)=>{
+  const range=reportRange(req.query);
+  const branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
+  const staffId=String(req.query.staffId||'');
+  const data=await getStaffCalendarFast(req.user,{from:range.from,to:range.to,branchId,staffId});
+  if(!data)return res.status(503).json({success:false,message:'CSDL báo cáo chưa sẵn sàng.'});
+  res.json({success:true,data});
+});
+
+router.get('/reports/staff/day',allowPermission('REPORT.VIEW'),async(req,res)=>{
+  const date=normalizeDateOnly(req.query.date||req.query.from||todayVN());
+  const branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
+  const staffId=String(req.query.staffId||'');
+  const data=await getStaffDayDetailFast(req.user,{date,branchId,staffId});
+  if(!data)return res.status(503).json({success:false,message:'CSDL báo cáo chưa sẵn sàng.'});
+  res.json({success:true,data});
+});
+
 router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const range=reportRange(req.query),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');
   const fast=await getStaffReportBundleFast(req.user,{from:range.from,to:range.to,branchId});
@@ -280,7 +413,7 @@ router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const ensurePerson=(person,branchName='')=>{const key=String(person.id||person.userId||person.employeeCode||person.fullName);if(!byId.has(key))byId.set(key,{id:key,userId:person.userId||null,employeeCode:person.employeeCode||'',fullName:person.fullName||person.username||'Nhân viên',branchName:branchName||person.branchName||'',shiftCount:0,primaryCount:0,changeCount:0,redCount:0,openCount:0,shiftIds:[],shifts:[]});return byId.get(key)};
   const calendar=shifts.map(shift=>({id:shift.id,shiftDate:shift.shiftDate,shiftType:shift.shiftType,status:shift.status,branchId:shift.branchId,branchName:shift.branchName||'',areaName:shift.areaName||'Toàn cơ sở',handover:!!handovers.find(h=>h.shiftId===shift.id&&h.confirmedAt),primaryRecorderId:shift.primaryRecorderId||shift.assignedStaffId||'',primaryRecorderName:shift.primaryRecorderName||shift.assignedStaffName||'',staff:(shift.assignedStaff||[]).map(p=>({id:p.id,userId:p.userId||null,employeeCode:p.employeeCode||'',fullName:p.fullName||'',isPrimary:String(p.id)===String(shift.primaryRecorderId||shift.assignedStaffId||'')}))}));
   for(const shift of shifts){for(const person of (shift.assignedStaff||[])){const row=ensurePerson(person,shift.branchName||'');row.shiftCount++;if(String(person.id)===String(shift.primaryRecorderId))row.primaryCount++;row.shiftIds.push(shift.id);row.shifts.push({id:shift.id,shiftDate:shift.shiftDate,shiftType:shift.shiftType,status:shift.status,areaName:shift.areaName||'Toàn cơ sở',branchName:shift.branchName||'',handover:!!handovers.find(h=>h.shiftId===shift.id&&h.confirmedAt),staff:(shift.assignedStaff||[]).map(p=>({id:p.id,employeeCode:p.employeeCode||'',fullName:p.fullName||''}))})}}
-  for(const c of changes){const sourceShift=shifts.find(s=>String(s.id)===String(c.shiftId));if(!sourceShift)continue;for(const person of (sourceShift.assignedStaff||[])){const row=ensurePerson(person,sourceShift.branchName||person.branchName||'');row.changeCount++;if(attentionLevel(c)==='RED')row.redCount++;if(attentionStatus(c)==='OPEN')row.openCount++}}
+  for(const c of changes){const shift=shifts.find(s=>String(s.id)===String(c.shiftId));for(const person of (shift?.assignedStaff||[])){const row=ensurePerson(person,shift?.branchName||'');row.changeCount++;if(attentionLevel(c)==='RED')row.redCount++;if(attentionStatus(c)==='OPEN')row.openCount++}}
   const staffDetails=[...byId.values()].filter(x=>x.shiftCount||x.changeCount).sort((a,b)=>String(a.fullName).localeCompare(String(b.fullName),'vi'));
   res.json({success:true,data:{from:range.from,to:range.to,branchId,calendar,staffDetails,activityChanges:changes.length}});
 });
