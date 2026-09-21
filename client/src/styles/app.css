@@ -228,6 +228,24 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
 .resident-vital-history h3{margin:0 0 10px;font-size:16px}
 .resident-vital-history-row{display:grid;grid-template-columns:160px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid #edf3f0}
 .resident-vital-history-row:last-child{border-bottom:0}
+
+/* iPad/mobile: make review-save actions reliably tappable */
+.review-save-card{padding:0!important;gap:0!important;grid-template-rows:auto minmax(0,1fr) auto!important}
+.review-save-card>.modal-head{padding:18px 20px;border-bottom:1px solid #e2ebe8}
+.review-save-body{min-height:0;overflow-y:auto!important;overflow-x:hidden;padding:16px 20px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.review-save-body>.clinical-alert,.review-save-body>.confirm-note{margin-top:12px}
+.review-save-footer{position:relative;z-index:5;display:flex;gap:10px;flex-wrap:wrap;padding:12px 20px calc(12px + env(safe-area-inset-bottom));border-top:1px solid #e2ebe8;background:#fff;touch-action:manipulation}
+.review-save-footer button{position:relative;z-index:6;min-height:46px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.review-modal{z-index:10010!important}
+.review-modal~.ai-fab,body:has(.review-modal) .ai-fab,body:has(.review-modal) .ai-panel{display:none!important}
+@media(max-width:700px){
+  .review-save-card{width:calc(100vw - 12px)!important;height:calc(100dvh - 12px)!important;max-height:calc(100dvh - 12px)!important;border-radius:14px!important}
+  .review-save-card>.modal-head{padding:14px}
+  .review-save-card>.modal-head h2{font-size:21px;margin:0 0 5px}
+  .review-save-body{padding:14px}
+  .review-save-footer{padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
+  .review-save-footer button{flex:1 1 150px}
+}
 .resident-vital-history-row strong{font-size:13px;color:#526b62}
 @media(max-width:1200px){.resident-vital-grid{grid-template-columns:repeat(4,minmax(130px,1fr))}}
 @media(max-width:800px){.resident-vital-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.resident-vital-history-row{grid-template-columns:1fr;gap:5px}.resident-vital-card b{font-size:22px}}
