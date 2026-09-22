@@ -37,7 +37,7 @@ export const ROLE_CAPS = Object.freeze({
     'SYSTEM.VIEW',
   ],
   CARE_SHARED: [
-    'SHIFT.VIEW',
+    'SHIFT.VIEW', 'SHIFT.CREATE',
     'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
@@ -58,7 +58,7 @@ export const DEFAULT_PERMISSIONS = Object.freeze({
     'SYSTEM.VIEW',
   ],
   CARE_SHARED: [
-    'SHIFT.VIEW',
+    'SHIFT.VIEW', 'SHIFT.CREATE',
     'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
@@ -74,6 +74,7 @@ export function sanitizePermissions(value, role) {
 
 export function normalizePermissions(user = {}) {
   if (user.role === 'ADMIN') return ['*'];
+  if (user.role === 'CARE_SHARED') return [...new Set([...sanitizePermissions(user.permissions, user.role), 'SHIFT.CREATE'])];
   return sanitizePermissions(user.permissions, user.role);
 }
 

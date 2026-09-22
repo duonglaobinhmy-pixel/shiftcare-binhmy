@@ -17,7 +17,7 @@ const FALLBACK_PERMISSIONS = {
     'SYSTEM.VIEW',
   ],
   CARE_SHARED: [
-    'SHIFT.VIEW',
+    'SHIFT.VIEW', 'SHIFT.CREATE',
     'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
@@ -27,6 +27,7 @@ const FALLBACK_PERMISSIONS = {
 export function userCan(user, permission) {
   if (!user) return false;
   if (user.role === 'ADMIN') return true;
+  if (user.role === 'CARE_SHARED' && permission === 'SHIFT.CREATE') return true;
   const permissions = Array.isArray(user.permissions)
     ? user.permissions
     : (FALLBACK_PERMISSIONS[user.role] || []);

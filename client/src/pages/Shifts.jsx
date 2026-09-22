@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,6 +13,7 @@ const freshForm = user => ({
 
 export default function Shifts() {
   const { user, can } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
   const [locations, setLocations] = useState({ areas: [], rooms: [] });
@@ -71,6 +72,7 @@ export default function Shifts() {
     load();
     api.branches().then(r => setBranches(r.data || [])).catch(e => setErr(e.message));
     if (form.branchId && canCreate) loadBranchData(form.branchId);
+    if (canCreate && searchParams.get('create') === '1') { setShow(true); setSearchParams({}, { replace: true }); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -159,7 +161,7 @@ export default function Shifts() {
   return <section>
     <header className="page-head">
       <div><h1>Ca chăm sóc</h1><p>Mỗi ca có 2–3 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
-      {canCreate && <button onClick={() => { if (show) { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); return; } setShow(true); setEditingShiftId(null); const next = freshForm(user); setForm(next); if (next.branchId) loadBranchData(next.branchId); }}>+ Tạo ca</button>}
+      {canCreate && <button type="button" onClick={() => { if (show) { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); return; } setShow(true); setEditingShiftId(null); const next = freshForm(user); setForm(next); if (next.branchId) loadBranchData(next.branchId); }}>+ Tạo ca</button>}
     </header>
 
     {err && <div className="error">{err}</div>}
