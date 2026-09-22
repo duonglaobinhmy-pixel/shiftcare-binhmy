@@ -329,3 +329,13 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
 .stats .stat-link:hover,.stats .stat-link:focus-visible{border-color:#258260;box-shadow:0 0 0 2px #25826033;outline:none}
 .stats .stat-link.danger-stat{background:#fff8f6;border-color:#f5aaa2}
 .stats .stat-link.warning-stat{background:#fffdf3;border-color:#efcc76}
+/* Sổ bàn giao chứa nhiều khối con; để chính hộp cuộn thay vì ép các khối vào 3 hàng grid. */
+.modal{z-index:1000}
+.handover-overlay{z-index:1000!important}
+.handover-modal,.modal-card.handover-modal.wide{display:flex!important;flex-direction:column!important;gap:14px!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;min-width:0;max-height:calc(100dvh - 24px)!important}
+.handover-modal>.modal-head,.handover-modal>.stats,.handover-modal>.handover-groups,.handover-modal>.panel,.handover-modal>.signature-box{flex:0 0 auto;min-width:0;position:static;overflow:visible}
+.handover-modal>.stats{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important;gap:10px!important;margin:0!important}
+.handover-modal .stat{min-width:0;min-height:0;overflow-wrap:anywhere}
+.handover-modal .handover-group,.handover-modal .signature-box{overflow-wrap:anywhere}
+.shift-record-actions{display:flex!important;flex-direction:column;align-items:flex-end;gap:10px;flex:0 0 auto}
+@media(max-width:700px){.handover-overlay{padding:8px!important;align-items:center}.handover-modal,.modal-card.handover-modal.wide{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;padding:14px!important}.handover-modal>.stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}.handover-modal>.modal-head{gap:8px}.handover-modal>.modal-head h2{font-size:1.3rem}.shift-records-page .log-card{flex-direction:column}.shift-record-actions{width:100%;align-items:stretch}.shift-record-actions a{width:100%}}
