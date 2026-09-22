@@ -3,9 +3,9 @@ services:
     name: bcare-staging
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install && npm --prefix server run db:migrate:middleware && npm run build
     startCommand: npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/health/database
     envVars:
       - key: NODE_ENV
         value: production

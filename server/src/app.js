@@ -139,9 +139,6 @@ async function loadApplicationModules() {
       await import('./routes/core.routes.js');
     console.log('[IMPORT 7] core.routes.js OK');
 
-    app.use('/api', coreRoutes);
-
-
     /*
      * Database health chỉ import sau khi server đã sống.
      */
@@ -154,8 +151,8 @@ async function loadApplicationModules() {
       try {
         const database = await databaseHealth();
 
-        return res.json({
-          ok: true,
+        return res.status(database.ok && database.middlewareSchemaReady ? 200 : 503).json({
+          ok: database.ok && database.middlewareSchemaReady,
           database,
           time: new Date().toISOString()
         });
@@ -170,6 +167,9 @@ async function loadApplicationModules() {
         });
       }
     });
+
+    // Register the authenticated catch-all router after the public DB health route.
+    app.use('/api', coreRoutes);
 
 
     /*
