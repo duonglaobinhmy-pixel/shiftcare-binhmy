@@ -313,7 +313,7 @@ export default function Users() {
       <div className="permission-head">
         <div>
           <h2>Danh sách nhân viên theo cơ sở</h2>
-          <p>Nhân viên không cần tài khoản riêng. Danh sách này dùng để chọn 2–3 người vào ca.</p>
+          <p>Nhân viên không cần tài khoản riêng. Danh sách này dùng để chọn tối thiểu 2 người vào ca, không giới hạn số người.</p>
         </div>
       </div>
       <div className="form-grid user-form">

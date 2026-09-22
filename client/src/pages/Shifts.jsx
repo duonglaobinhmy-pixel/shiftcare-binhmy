@@ -90,7 +90,6 @@ export default function Shifts() {
   function toggleStaff(id) {
     setForm(f => {
       const removing = f.assignedStaffIds.includes(id);
-      if (!removing && f.assignedStaffIds.length >= 3) return f;
       return {
         ...f,
         assignedStaffIds: removing ? f.assignedStaffIds.filter(x => x !== id) : [...f.assignedStaffIds, id],
@@ -103,7 +102,7 @@ export default function Shifts() {
     e.preventDefault();
     setErr(''); setInfo('');
     if (!form.branchId) return setErr('Phải chọn cơ sở.');
-    if (form.assignedStaffIds.length < 2 || form.assignedStaffIds.length > 3) return setErr('Mỗi ca phải chọn từ 2 đến 3 nhân sự.');
+    if (form.assignedStaffIds.length < 2) return setErr('Mỗi ca phải chọn tối thiểu 2 nhân sự.');
     if (!form.primaryRecorderId || !form.assignedStaffIds.includes(form.primaryRecorderId)) return setErr('Phải chọn một người ghi chính trong số nhân sự trực ca.');
     setBusy(true);
     try {
@@ -160,7 +159,7 @@ export default function Shifts() {
   const today = todayVN();
   return <section>
     <header className="page-head">
-      <div><h1>Ca chăm sóc</h1><p>Mỗi ca có 2–3 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
+      <div><h1>Ca chăm sóc</h1><p>Mỗi ca có tối thiểu 2 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
       {canCreate && <button type="button" onClick={() => { if (show) { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); return; } setShow(true); setEditingShiftId(null); const next = freshForm(user); setForm(next); if (next.branchId) loadBranchData(next.branchId); }}>+ Tạo ca</button>}
     </header>
 
@@ -178,8 +177,8 @@ export default function Shifts() {
       </div>
 
       <fieldset className="staff-picker">
-        <legend>Nhân sự trực ca — chọn 2–3 người *</legend>
-        <div className="staff-picker-head"><span>Đã chọn <b>{form.assignedStaffIds.length}</b></span><small>Tối thiểu 2, tối đa 3</small></div>
+        <legend>Nhân sự trực ca — chọn ít nhất 2 người *</legend>
+        <div className="staff-picker-head"><span>Đã chọn <b>{form.assignedStaffIds.length}</b></span><small>Không giới hạn số người</small></div>
         {branchLoading ? <div className="inline-loading"><span className="loading-spinner" />Đang tải nhân sự và khu/phòng...</div> : <>
           <div className="staff-options">{staffOptions.map(staff => <label className={`staff-option ${form.assignedStaffIds.includes(staff.id) ? 'selected' : ''}`} key={staff.id}><input type="checkbox" checked={form.assignedStaffIds.includes(staff.id)} onChange={() => toggleStaff(staff.id)} /><span><b>{staff.fullName}</b><small>Mã NV: {staff.employeeCode || staff.username || '—'} • {staff.areaName || 'Toàn cơ sở'}</small></span></label>)}</div>
           {form.branchId && !staffOptions.length && <div className="empty compact">Không tìm thấy nhân sự hoạt động của cơ sở này. Kiểm tra branchId/active trong danh sách nhân viên.</div>}
@@ -194,6 +193,6 @@ export default function Shifts() {
       <div><b>{x.shiftDate === today ? 'Hôm nay • ' : ''}{label(x.shiftType)}</b><span>{x.branchName}</span><small>{x.areaName || 'Toàn cơ sở'} • <b>{x.residentCount ?? 0} NCT</b></small><small><b>Nhân sự:</b> {(x.assignedStaff || []).length ? x.assignedStaff.map(s => `${s.fullName} (${s.employeeCode || s.username || '—'})`).join(', ') : 'Ca cũ chưa phân công'}</small><small><b>Người ghi chính:</b> {x.primaryRecorderName || x.assignedStaffName || 'Chưa chọn'}</small>{Number(x.residentCount || 0) === 0 && <small className="roster-warning">Chưa có NCT trong roster — nạp lại từ BCARE.</small>}</div>
       <div className="shift-enter"><span className={`badge ${x.status}`}>{x.status}</span><Link className="shift-open-link" to={`/shifts/${x.id}`}>Vào ca →</Link>{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" disabled={refreshingId === x.id} onClick={() => refreshRoster(x)}>{refreshingId === x.id ? 'Đang nạp...' : '↻ Nạp lại NCT'}</button>}{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" onClick={() => editStaff(x)}>Sửa nhân sự</button>}{canDelete && <button className="danger compact-button" onClick={() => removeShift(x)}>Xóa ca</button>}</div>
     </div>)}</div>}
-    {!loading && !rows.length && <div className="empty shift-empty"><b>Chưa có ca trong phạm vi này.</b><span>Tạo ca, chọn 2–3 nhân sự và nạp roster NCT từ BCARE.</span></div>}
+    {!loading && !rows.length && <div className="empty shift-empty"><b>Chưa có ca trong phạm vi này.</b><span>Tạo ca, chọn tối thiểu 2 nhân sự và nạp roster NCT từ BCARE.</span></div>}
   </section>;
 }

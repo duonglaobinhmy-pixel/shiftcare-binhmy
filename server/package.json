@@ -3,7 +3,7 @@
   "version": "3.0.4-demo-v10.4-middleware",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/app.js",
+    "dev": "node src/app.js",
     "start": "node src/app.js",
     "db:migrate:middleware": "node scripts/db-migrate-middleware.js",
     "db:migrate:app-state": "node scripts/migrate-app-state-to-middleware.js",
