@@ -236,6 +236,20 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
 .review-save-body>.clinical-alert,.review-save-body>.confirm-note{margin-top:12px}
 .review-save-footer{position:relative;z-index:5;display:flex;gap:10px;flex-wrap:wrap;padding:12px 20px calc(12px + env(safe-area-inset-bottom));border-top:1px solid #e2ebe8;background:#fff;touch-action:manipulation}
 .review-save-footer button{position:relative;z-index:6;min-height:46px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.entry-route-page>:not(.modal){display:none!important}
+.entry-route-page .entry-modal{width:min(1120px,calc(100vw - 24px))!important;height:calc(100dvh - 24px)!important}
+.entry-picker-page{max-width:1100px;margin:0 auto;padding-bottom:30px}
+.entry-picker-head .report-back-link{display:inline-block;margin-bottom:10px;color:#176f58;font-weight:800;text-decoration:none}
+.entry-picker-search{position:sticky;top:0;z-index:8;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;background:#f3f7f5}
+.entry-picker-search input{width:100%;min-height:50px;border:2px solid #b9d5ca;border-radius:13px;padding:12px 15px;font-size:16px;background:#fff}
+.entry-picker-search b{white-space:nowrap;color:#526e64}
+.entry-picker-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.entry-picker-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;padding:14px;text-align:left;color:#17312b;background:#fff;border:1px solid #d9e7e1;border-radius:15px;box-shadow:0 3px 12px #17312b0a}
+.entry-picker-card:hover,.entry-picker-card:focus{border-color:#1f7a5a;box-shadow:0 0 0 2px #1f7a5a20}
+.entry-picker-card>span:nth-child(2){display:grid;gap:4px;min-width:0}
+.entry-picker-card small{color:#6e817a;white-space:normal}
+.entry-picker-count{text-align:right;color:#60786f;font-size:12px;white-space:nowrap}
+.entry-picker-count strong{display:inline-block;margin-top:4px;color:#167154}
 .review-modal{z-index:10010!important}
 .review-modal~.ai-fab,body:has(.review-modal) .ai-fab,body:has(.review-modal) .ai-panel{display:none!important}
 @media(max-width:700px){
@@ -245,6 +259,11 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
   .review-save-body{padding:14px}
   .review-save-footer{padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
   .review-save-footer button{flex:1 1 150px}
+  .entry-picker-page{padding:0 2px 24px}
+  .entry-picker-grid{grid-template-columns:1fr}
+  .entry-picker-search{top:0;padding:8px 0}
+  .entry-picker-card{grid-template-columns:auto minmax(0,1fr);padding:12px}
+  .entry-picker-count{grid-column:2;text-align:left}
 }
 .resident-vital-history-row strong{font-size:13px;color:#526b62}
 @media(max-width:1200px){.resident-vital-grid{grid-template-columns:repeat(4,minmax(130px,1fr))}}
