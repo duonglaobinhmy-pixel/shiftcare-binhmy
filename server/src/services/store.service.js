@@ -200,10 +200,11 @@ async function persistStore(db, store) {
 export async function updateStore(mutator) {
   invalidateStoreCache();
   if (!await middlewareSchemaReady()) {
-    queue=queue.then(async()=>{const store=await readJson('store.json',clone(DEFAULT_STORE));const result=await mutator(store);await writeJson('store.json',store);return result});
-    return queue;
+    const operation=queue.then(async()=>{const store=await readJson('store.json',clone(DEFAULT_STORE));const result=await mutator(store);await writeJson('store.json',store);return result});
+    queue=operation.then(()=>undefined,()=>undefined);
+    return operation;
   }
-  queue=queue.then(async()=>{
+  const operation=queue.then(async()=>{
     const committed=await withTransaction(async db=>{
       const store=await getStore();
       const result=await mutator(store);
@@ -216,5 +217,6 @@ export async function updateStore(mutator) {
     invalidateStoreCache();
     return committed.result;
   });
-  return queue;
+  queue=operation.then(()=>undefined,()=>undefined);
+  return operation;
 }
