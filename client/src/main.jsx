@@ -11,6 +11,7 @@ import Shifts from './pages/Shifts';
 import ShiftDetail from './pages/ShiftDetail';
 import ShiftEntryPicker from './pages/ShiftEntryPicker';
 import ShiftCurrent from './pages/ShiftCurrent';
+import ShiftRecords from './pages/ShiftRecords';
 import Reports from './pages/Reports';
 import StaffReports from './pages/StaffReports';
 import StaffReportDay from './pages/StaffReportDay';
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="shifts" element={<Shifts/>}/>
             <Route path="shifts/current" element={<ShiftCurrent/>}/>
             <Route path="shifts/:id" element={<ShiftDetail/>}/>
+            <Route path="shifts/:id/records/:filter" element={<ShiftRecords/>}/>
             <Route path="shifts/:id/entry" element={<ShiftEntryPicker/>}/>
             <Route path="shifts/:id/entry/:residentId" element={<ShiftDetail/>}/>
             <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Reports/></ProtectedRoute>}/>

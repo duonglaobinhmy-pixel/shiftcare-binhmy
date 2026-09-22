@@ -38,7 +38,7 @@ function currentShiftType(){
 }
 function attentionLevel(x){
   if(x.attentionLevel==='RED'||x.attentionLevel==='YELLOW')return x.attentionLevel;
-  if(x.vitals?.alertLevel==='RED'||x.eventType==='FALL')return'RED';
+  if(x.vitals?.alertLevel==='RED'||x.eventType==='FALL'||x.categoryCodes?.includes('INCIDENT'))return'RED';
   if(x.vitals?.alertLevel==='YELLOW'||x.priority==='HIGH'||x.vitals?.concern)return'YELLOW';
   return null;
 }
@@ -140,6 +140,7 @@ function normalizeVitals(vitals,insulin){
   normalized.insulinDoseUnits=null;
 
   if(insulin?.given){
+    if(normalized.bloodGlucose===null)throw new Error('Đã chọn tiêm insulin thì phải nhập đường huyết trước tiêm.');
     const rawDose=insulin.dose;
 
     if(rawDose===''||rawDose===null||rawDose===undefined){
@@ -273,7 +274,7 @@ router.get('/dashboard',allowPermission('DASHBOARD.VIEW'),async(req,res)=>{
   const handovers=(s.handovers||[]).filter(x=>ids.has(x.shiftId));
   const allVisibleChanges=fast?fast.outstanding.map(withAttention):(await getStore()).changeLogs.filter(x=>!x.deleted&&visibleByScope(req.user,x)).map(withAttention);
   const outstanding=(fast?allVisibleChanges:allVisibleChanges.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN')).sort((a,b)=>(a.attentionLevel===b.attentionLevel?String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt)):a.attentionLevel==='RED'?-1:1));
-  const byCategory=changes.reduce((a,x)=>(a[x.category]=(a[x.category]||0)+1,a),{});
+  const byCategory=changes.reduce((a,x)=>{for(const code of new Set(x.categoryCodes?.length?x.categoryCodes:[x.category]))a[code]=(a[code]||0)+1;return a},{});
   const shiftStatus=Object.entries(shifts.reduce((a,x)=>(a[x.status]=(a[x.status]||0)+1,a),{})).map(([status,count])=>({status,count}));
   const alerts=outstanding.slice(0,50).map(x=>({id:x.id,residentId:x.residentId,residentName:x.residentName,shiftId:x.shiftId,areaName:x.areaName||'',roomName:x.roomName||'',bedName:x.bedName||'',image:x.image||x.woundImages?.[0]?.dataUrl||'',level:x.attentionLevel,latestContent:x.content,latestAt:x.occurredAt||x.createdAt,requiresHandover:x.requiresHandover}));
   const activityResidents=new Set(changes.map(x=>x.residentId).filter(Boolean));
@@ -301,12 +302,14 @@ router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
   const eventCodes=Array.isArray(b.eventCodes)?[...new Set(b.eventCodes)]:[b.eventType==='HOSPITAL'?'OBSERVATION':(b.eventType||'OBSERVATION')];
   if(eventCodes.includes('FALL'))eventCodes.splice(eventCodes.indexOf('FALL'),1),eventCodes.unshift('FALL');
   const residentStatus=b.residentStatus||(b.eventType==='HOSPITAL'?'HOSPITAL':'IN_FACILITY');
+  const categoryCodes=Array.isArray(b.categoryCodes)?[...new Set(b.categoryCodes)]:[b.category];
+  if(!categoryCodes.length||categoryCodes.some(code=>typeof code!=='string'||!careCategories.has(code)))return res.status(422).json({success:false,message:'Phải chọn ít nhất một nhóm ghi nhận hợp lệ.'});
   if(!eventCodes.length||eventCodes.some(code=>typeof code!=='string'||!allowedEvents.has(code))||!['IN_FACILITY','HOME_LEAVE','HOSPITAL'].includes(residentStatus))return res.status(422).json({success:false,message:'Trạng thái NCT hoặc nội dung ghi nhận không hợp lệ.'});
   const inRoster=s.shiftResidents.some(x=>x.shiftId===shift.id&&x.residentId===b.residentId&&visibleByScope(req.user,x));if(!inRoster)return res.status(422).json({success:false,message:'NCT không thuộc roster ca này.'});
   if(!b.residentId||!b.category||!String(b.content||'').trim())return res.status(400).json({success:false,message:'Thiếu NCT, nhóm biến động hoặc nội dung'});if(b.requiresHandover&&!String(b.followUp||'').trim())return res.status(422).json({success:false,message:'Đã chọn cần bàn giao thì phải nhập việc ca sau cần biết/làm'});
   const occurredAt=b.occurredAt?new Date(b.occurredAt):new Date();if(Number.isNaN(occurredAt.getTime())||occurredAt.getTime()>Date.now()+5*60*1000)return res.status(422).json({success:false,message:'Thời điểm ghi nhận không hợp lệ hoặc đang ở tương lai.'});
   let vitals,woundImages;try{vitals=normalizeVitals(b.vitals,b.insulin);woundImages=sanitizeWoundImages(b.woundImages)}catch(e){return res.status(422).json({success:false,message:e.message})}
-  const row={id:uuid(),clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:b.residentName||'',category:b.category,eventType:eventCodes[0],eventCodes,residentStatus,priority:vitals?.alertLevel==='RED'?'HIGH':(['LOW','MEDIUM','HIGH'].includes(b.priority)?b.priority:'MEDIUM'),occurredAt:occurredAt.toISOString(),content:String(b.content).trim(),intervention:b.intervention||'',notifiedTo:b.notifiedTo||'',vitals,woundImages,requiresHandover:!!b.requiresHandover,followUp:b.followUp||'',branchId:shift.branchId,branchName:shift.branchName||'',areaId:b.areaId||shift.areaId||null,areaName:b.areaName||'',roomName:b.roomName||'',bedName:b.bedName||'',image:b.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};row.attentionLevel=attentionLevel(row);row.attentionStatus=row.attentionLevel?'OPEN':null;
+  const row={id:uuid(),clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:b.residentName||'',category:categoryCodes[0],categoryCodes,eventType:eventCodes[0],eventCodes,residentStatus,priority:vitals?.alertLevel==='RED'?'HIGH':(['LOW','MEDIUM','HIGH'].includes(b.priority)?b.priority:'MEDIUM'),occurredAt:occurredAt.toISOString(),content:String(b.content).trim(),intervention:b.intervention||'',notifiedTo:b.notifiedTo||'',vitals,woundImages,requiresHandover:!!b.requiresHandover,followUp:b.followUp||'',branchId:shift.branchId,branchName:shift.branchName||'',areaId:b.areaId||shift.areaId||null,areaName:b.areaName||'',roomName:b.roomName||'',bedName:b.bedName||'',image:b.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};row.attentionLevel=attentionLevel(row);row.attentionStatus=row.attentionLevel?'OPEN':null;
   await updateStore(store=>{store.changeLogs.unshift(row);const sr=store.shiftResidents.find(x=>x.shiftId===row.shiftId&&x.residentId===row.residentId);if(sr)sr.derivedStatus=row.requiresHandover?'REQUIRES_HANDOVER':'RECORDED_CHANGE'});await audit(req.user,'CHANGE_CREATE','change_log',row.id,{residentId:row.residentId,category:row.category,priority:row.priority});if(row.attentionLevel==='RED')void notifyUrgentCreated(row).then(result=>result.sent&&audit(req.user,'TELEGRAM_URGENT_SENT','change_log',row.id,{messageId:result.messageId})).catch(error=>console.error('Telegram urgent alert failed:',error.message));res.status(201).json({success:true,data:row});
 });
 router.patch('/change-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)=>{
@@ -379,7 +382,7 @@ router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const changes=(fast?base.changeLogs:base.changeLogs.filter(x=>!x.deleted&&inEventRange(x.occurredAt||x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x))).map(withAttention);
   const toilets=fast?base.toiletingLogs:base.toiletingLogs.filter(x=>!x.deleted&&inEventRange(x.createdAt,range)&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x));
   const outstanding=(fast?base.outstanding.map(withAttention):(await getStore()).changeLogs.filter(x=>!x.deleted&&(!branchId||String(x.branchId)===branchId)&&visibleByScope(req.user,x)).map(withAttention).filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN')).sort((a,b)=>(a.attentionLevel===b.attentionLevel?String(b.occurredAt||b.createdAt).localeCompare(String(a.occurredAt||a.createdAt)):a.attentionLevel==='RED'?-1:1));
-  const byCategory=changes.reduce((a,x)=>(a[x.category]=(a[x.category]||0)+1,a),{}),byArea=changes.reduce((a,x)=>(a[x.areaName||'Chưa xác định']=(a[x.areaName||'Chưa xác định']||0)+1,a),{});
+  const byCategory=changes.reduce((a,x)=>{for(const code of new Set(x.categoryCodes?.length?x.categoryCodes:[x.category]))a[code]=(a[code]||0)+1;return a},{}),byArea=changes.reduce((a,x)=>(a[x.areaName||'Chưa xác định']=(a[x.areaName||'Chưa xác định']||0)+1,a),{});
   const attentionInRange=changes.filter(isAttentionChange),resolvedInRange=attentionInRange.filter(x=>x.attentionStatus==='RESOLVED');
   const shiftDetails=shifts.map(x=>({id:x.id,shiftDate:x.shiftDate,shiftType:x.shiftType,status:x.status,branchId:x.branchId,branchName:x.branchName,areaName:x.areaName,residentCount:residents.filter(r=>r.shiftId===x.id).length,changeCount:changes.filter(c=>c.shiftId===x.id).length,handoverCount:changes.filter(c=>c.shiftId===x.id&&c.requiresHandover).length,assignedStaff:(x.assignedStaff||[]).map(p=>({id:p.id,employeeCode:p.employeeCode,fullName:p.fullName})),primaryRecorderName:x.primaryRecorderName||x.assignedStaffName||''}));
   const residentMap=new Map();

@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS care_record_events (
   CONSTRAINT uq_care_record_event UNIQUE(care_record_id,event_code)
 );
 CREATE INDEX IF NOT EXISTS idx_care_record_events_code ON care_record_events(event_code);
+CREATE TABLE IF NOT EXISTS care_record_categories (
+  care_record_id TEXT NOT NULL REFERENCES care_records(id) ON DELETE CASCADE,
+  category_code TEXT NOT NULL CHECK (category_code IN ('HEALTH','NUTRITION','INCIDENT','PSYCHOLOGY','SKIN','OTHER')),
+  PRIMARY KEY (care_record_id,category_code)
+);
+CREATE INDEX IF NOT EXISTS idx_care_record_categories_code ON care_record_categories(category_code);
+INSERT INTO care_record_categories(care_record_id,category_code)
+SELECT id,category FROM care_records
+WHERE category IN ('HEALTH','NUTRITION','INCIDENT','PSYCHOLOGY','SKIN','OTHER')
+ON CONFLICT DO NOTHING;
 CREATE INDEX IF NOT EXISTS idx_care_records_resident_status ON care_records(resident_status,occurred_at DESC) WHERE deleted=FALSE;
 INSERT INTO care_record_events(care_record_id,event_code)
 SELECT id,CASE WHEN event_type='HOSPITAL' THEN 'OBSERVATION' ELSE event_type END
