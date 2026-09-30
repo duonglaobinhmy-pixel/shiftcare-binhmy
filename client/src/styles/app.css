@@ -339,3 +339,53 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
 .handover-modal .handover-group,.handover-modal .signature-box{overflow-wrap:anywhere}
 .shift-record-actions{display:flex!important;flex-direction:column;align-items:flex-end;gap:10px;flex:0 0 auto}
 @media(max-width:700px){.handover-overlay{padding:8px!important;align-items:center}.handover-modal,.modal-card.handover-modal.wide{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;padding:14px!important}.handover-modal>.stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}.handover-modal>.modal-head{gap:8px}.handover-modal>.modal-head h2{font-size:1.3rem}.shift-records-page .log-card{flex-direction:column}.shift-record-actions{width:100%;align-items:stretch}.shift-record-actions a{width:100%}}
+
+/* Dashboard: measurements belong to the selected Vietnam calendar date. */
+.care-dashboard .dashboard-vitals{margin-bottom:18px;min-width:0}
+.dashboard-vitals .panel-title{align-items:flex-start;gap:16px;flex-wrap:wrap}
+.dashboard-vitals .panel-title p{max-width:860px}
+.dashboard-vital-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.dashboard-vital-summary>div{display:flex;flex-direction:column;gap:5px;padding:14px;border:1px solid #dbe9e5;border-radius:12px;background:#f5faf8}
+.dashboard-vital-summary b{font-size:26px}
+.dashboard-vital-summary span{font-size:14px}
+.dashboard-vital-filters{display:grid;grid-template-columns:2fr repeat(3,minmax(140px,1fr));gap:12px}
+.dashboard-vital-filters label{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dashboard-vital-filters input,.dashboard-vital-filters select{width:100%;min-width:0}
+.dashboard-vital-count{color:#617b73;font-size:13px;margin:12px 0}
+.dashboard-vital-table-wrap{overflow-x:auto;border:1px solid #dbe9e5;border-radius:12px}
+.dashboard-vital-table{width:100%;min-width:1200px;border-collapse:collapse;font-size:14px}
+.dashboard-vital-table th,.dashboard-vital-table td{padding:12px 10px;border-bottom:1px solid #e5eeeb;text-align:left;vertical-align:top}
+.dashboard-vital-table th{background:#edf5f2;color:#254e41;white-space:nowrap}
+.dashboard-vital-table small{display:block;font-size:12px;color:#617b73;margin-top:4px;white-space:normal}
+.dashboard-vital-table td:first-child{min-width:170px}
+.dashboard-vital-table td:nth-child(2){min-width:150px}
+.dashboard-vital-table td:last-child{min-width:170px;max-width:300px}
+.dashboard-vital-table td:last-child>a{display:block;margin-top:8px}
+.dashboard-vital-table details summary{cursor:pointer;color:#187454;font-weight:600}
+.dashboard-vital-table details p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}
+.dashboard-vital-level{display:inline-block;padding:4px 10px;border-radius:20px;font-weight:700;white-space:nowrap}
+.dashboard-vital-level.NORMAL{background:#e6f4ed;color:#187454}
+.dashboard-vital-level.RED{background:#fee9e6;color:#b52b23}
+.dashboard-vital-level.YELLOW{background:#fff3ce;color:#856200}
+.care-dashboard .vital-value-RED{color:#b52b23;font-weight:700;background:#fff2f0}
+.care-dashboard .vital-value-YELLOW{color:#856200;font-weight:700;background:#fff9e8}
+.dashboard-alert-vitals{font-weight:600;line-height:1.5}
+@media(max-width:900px){.dashboard-vital-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-vital-actions{width:100%}.dashboard-vital-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.dashboard-vital-filters{grid-template-columns:1fr}.dashboard-vital-actions button{flex:1}.dashboard-vitals{padding:14px}}
+@media print{
+  body:has(.care-dashboard){background:#fff}
+  body:has(.care-dashboard) .app-sidebar,body:has(.care-dashboard) .app-topbar,body:has(.care-dashboard) .ai-fab,body:has(.care-dashboard) .ai-panel{display:none!important}
+  body:has(.care-dashboard) .app-shell{display:block;height:auto;overflow:visible}
+  body:has(.care-dashboard) .app-content-scroll{height:auto;overflow:visible;padding:0}
+  body:has(.care-dashboard) .app-main,body:has(.care-dashboard) main{height:auto;overflow:visible;margin:0!important;padding:0!important;width:100%!important}
+  .care-dashboard .stats,.care-dashboard .dashboard-grid,.care-dashboard .dashboard-vital-actions,.care-dashboard .dashboard-vital-filters,.care-dashboard .date-filter,.care-dashboard .modal{display:none!important}
+  .care-dashboard .dashboard-vitals{box-shadow:none;border:0;padding:0}
+  .care-dashboard .dashboard-vital-table-wrap{overflow:visible;border:0}
+  .care-dashboard .dashboard-vital-table{min-width:0;font-size:8px;table-layout:fixed}
+  .care-dashboard .dashboard-vital-table th,.care-dashboard .dashboard-vital-table td{min-width:0!important;padding:5px 3px;white-space:normal;overflow-wrap:anywhere}
+  .care-dashboard .dashboard-vital-table small{font-size:7px}
+  .care-dashboard .dashboard-vital-table td:last-child>a{display:none}
+  .care-dashboard .dashboard-vital-table details>p{display:block!important}
+  .care-dashboard .dashboard-vital-table tr{break-inside:avoid}
+  .care-dashboard .dashboard-vital-table thead{display:table-header-group}
+}
