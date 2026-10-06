@@ -139,27 +139,75 @@ export default function Shifts() {
   }
 
   async function refreshRoster(row) {
-    setRefreshingId(row.id); setErr(''); setInfo('');
+    setRefreshingId(row.id);
+    setErr('');
+    setInfo('');
+  
     try {
       const r = await api.refreshShiftRoster(row.id);
-      if (!r?.data?.id) throw new Error('Không nhận được mã ca vừa tạo.');
-        navigate(`/shifts/${encodeURIComponent(r.data.id)}`);
-        return;
-        const count = Number(r?.data?.residentCount || 0);
-      setInfo(count ? `Đã nạp lại ${count} NCT từ BCARE cho ${label(row.shiftType)}.` : 'BCARE trả 0 NCT cho bộ lọc cơ sở/khu/phòng của ca này.');
+  
+      const count = Number(r?.data?.residentCount || 0);
+  
+      setInfo(
+        count > 0
+          ? `Đã nạp lại ${count} NCT từ BCARE cho ${label(row.shiftType)}.`
+          : 'BCARE trả 0 NCT cho bộ lọc cơ sở/khu/phòng của ca này.'
+      );
+  
       await load();
     } catch (e) {
-      setErr(e.message);
+      setErr(e.message || 'Không thể nạp lại danh sách NCT.');
     } finally {
       setRefreshingId('');
     }
   }
 
   async function removeShift(row) {
-    const warning = user.role === 'ADMIN' ? 'Admin sẽ xóa cả dữ liệu con của ca và audit vẫn lưu thao tác.' : 'Chỉ ca chưa có dữ liệu mới được xóa.';
-    if (!confirm(`Xóa ${label(row.shiftType)} ngày ${row.shiftDate}? ${warning}`)) return;
-    try { setErr(''); setInfo(''); await api.deleteShift(row.id); setInfo('Đã xóa ca.'); await load(); }
-    catch (e) { setErr(e.message); }
+    setErr('');
+    setInfo('');
+  
+    const isAdmin = user?.role === 'ADMIN';
+  
+    const warning = isAdmin
+      ? 'Bạn đang dùng quyền Admin. Nếu ca có dữ liệu chăm sóc, hệ thống có thể xóa toàn bộ dữ liệu liên quan.'
+      : 'Chỉ được xóa ca chưa phát sinh dữ liệu.';
+  
+    const ok = window.confirm(
+      `Xóa ${label(row.shiftType)} ngày ${row.shiftDate}?\n\n${warning}`
+    );
+  
+    if (!ok) return;
+  
+    try {
+      await api.deleteShift(row.id);
+  
+      setInfo(
+        `Đã xóa ${label(row.shiftType)} ngày ${row.shiftDate}.`
+      );
+  
+      await load();
+    } catch (e) {
+      if (e?.status === 422) {
+        setErr(
+          e.message ||
+          'Ca đã phát sinh dữ liệu chăm sóc hoặc bàn giao nên không thể xóa.'
+        );
+        return;
+      }
+  
+      if (e?.status === 403) {
+        setErr('Bạn không có quyền xóa ca này.');
+        return;
+      }
+  
+      if (e?.status === 404) {
+        setErr('Không tìm thấy ca hoặc ca đã được xóa.');
+        await load();
+        return;
+      }
+  
+      setErr(e?.message || 'Không thể xóa ca.');
+    }
   }
 
   const today = todayVN();
