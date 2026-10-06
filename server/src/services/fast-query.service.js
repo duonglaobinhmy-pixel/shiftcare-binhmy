@@ -1,3 +1,4 @@
+import { shiftPageMeta } from './shift-pagination.service.js';
 import { v4 as uuid } from 'uuid';
 import { getPool, middlewareSchemaReady, withTransaction } from './db.service.js';
 import { invalidateStoreCache } from './store.service.js';
@@ -73,6 +74,43 @@ export async function getShiftsFast(user){
     ORDER BY s.created_at DESC
   `,params);
   return r.rows.map(mapShiftRow).filter(x=>scopeShift(user,x));
+}
+
+export async function getShiftsPageFast(user,options){
+  if(!await ready())return null;
+  const db=getPool(),params=[];
+  let where='TRUE';
+  if(user.role!=='ADMIN'){params.push(String(user.branchId||''));where='s.branch_id=$1'}
+  const count=await db.query(`SELECT COUNT(*) AS total FROM shifts s WHERE ${where}`,params);
+  const pagination=shiftPageMeta(Number(count.rows[0].total),options);
+  const values=[...params,pagination.pageSize,(pagination.page-1)*pagination.pageSize];
+  const limitIndex=params.length+1,offsetIndex=params.length+2;
+  const result=await db.query(`
+    SELECT s.*,roster.resident_count,staff.assigned_staff
+    FROM (
+      SELECT s.* FROM shifts s WHERE ${where}
+      ORDER BY s.shift_date DESC,s.created_at DESC NULLS LAST,s.id DESC
+      LIMIT $${limitIndex} OFFSET $${offsetIndex}
+    ) s
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS resident_count FROM shift_residents sr WHERE sr.shift_id=s.id
+    ) roster ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(json_agg(jsonb_build_object(
+        'id',sm.id,'userId',sm.user_id,'username',u.username,
+        'employeeCode',sm.employee_code,'fullName',sm.full_name,
+        'role',COALESCE(u.role,sm.role_cache,'STAFF'),
+        'areaId',sm.area_id_cache,'areaName',sm.area_name_cache,
+        'isPrimary',ss.is_primary_recorder
+      ) ORDER BY sm.full_name,sm.id),'[]'::json) AS assigned_staff
+      FROM shift_staff ss
+      JOIN staff_members sm ON sm.id=ss.staff_id
+      LEFT JOIN users u ON u.id=sm.user_id
+      WHERE ss.shift_id=s.id
+    ) staff ON TRUE
+    ORDER BY s.shift_date DESC,s.created_at DESC NULLS LAST,s.id DESC
+  `,values);
+  return {data:result.rows.map(mapShiftRow).filter(x=>scopeShift(user,x)),pagination};
 }
 
 export async function getShiftDetailFast(user,id){
@@ -583,171 +621,16 @@ export async function replaceShiftRosterFast(shift,items){
   return items.length;
 }
 
-export async function deleteShiftFast(user, id) {
-  if (!await ready()) return null;
-
-  const result = await withTransaction(async db => {
-    // =========================================================
-    // 1. LẤY CA
-    // =========================================================
-    const shiftResult = await db.query(
-      `
-      SELECT *
-      FROM shifts
-      WHERE id = $1
-      `,
-      [id]
-    );
-
-    if (!shiftResult.rowCount) {
-      return {
-        notFound: true
-      };
-    }
-
-    const shift = shiftResult.rows[0];
-
-    const isAdmin =
-      String(user?.role || '')
-        .trim()
-        .toUpperCase() === 'ADMIN';
-
-    // =========================================================
-    // 2. KIỂM TRA PHẠM VI CƠ SỞ
-    // =========================================================
-    if (
-      !isAdmin &&
-      String(shift.branch_id) !== String(user?.branchId || '')
-    ) {
-      return {
-        notFound: true
-      };
-    }
-
-    // =========================================================
-    // 3. ĐẾM DỮ LIỆU CON CỦA CA
-    // =========================================================
-    const countResult = await db.query(
-      `
-      SELECT
-
-        (
-          SELECT COUNT(*)
-          FROM care_records
-          WHERE shift_id = $1
-        )::int AS changes,
-
-        (
-          SELECT COUNT(*)
-          FROM toileting_logs
-          WHERE shift_id = $1
-        )::int AS toileting,
-
-        (
-          SELECT COUNT(*)
-          FROM handovers
-          WHERE shift_id = $1
-        )::int AS handovers
-      `,
-      [id]
-    );
-
-    const counts = countResult.rows[0] || {
-      changes: 0,
-      toileting: 0,
-      handovers: 0
-    };
-
-    const hasData =
-      Number(counts.changes || 0) > 0 ||
-      Number(counts.toileting || 0) > 0 ||
-      Number(counts.handovers || 0) > 0;
-
-    // =========================================================
-    // 4. USER THƯỜNG:
-    //    CA ĐÃ PHÁT SINH DỮ LIỆU THÌ KHÔNG ĐƯỢC XÓA
-    // =========================================================
-    if (!isAdmin && hasData) {
-      return {
-        blocked: true,
-        counts
-      };
-    }
-
-    // =========================================================
-    // 5. ADMIN:
-    //    XÓA CÁC DỮ LIỆU CON TRƯỚC
-    // =========================================================
-    if (isAdmin) {
-
-      // care_record_vitals / care_record_images
-      // nếu FK cascade theo care_records thì tự xóa theo.
-      await db.query(
-        `
-        DELETE FROM care_records
-        WHERE shift_id = $1
-        `,
-        [id]
-      );
-
-      await db.query(
-        `
-        DELETE FROM toileting_logs
-        WHERE shift_id = $1
-        `,
-        [id]
-      );
-
-      // handover_signatures nếu cascade theo handovers
-      // sẽ tự xóa theo.
-      await db.query(
-        `
-        DELETE FROM handovers
-        WHERE shift_id = $1
-        `,
-        [id]
-      );
-    }
-
-    // =========================================================
-    // 6. XÓA CA
-    //
-    // shift_staff / shift_residents nếu đang
-    // ON DELETE CASCADE thì tự bị dọn.
-    // =========================================================
-    const deletedResult = await db.query(
-      `
-      DELETE FROM shifts
-      WHERE id = $1
-      RETURNING id
-      `,
-      [id]
-    );
-
-    if (!deletedResult.rowCount) {
-      return {
-        notFound: true
-      };
-    }
-
-    // =========================================================
-    // 7. TRẢ KẾT QUẢ
-    // =========================================================
-    return {
-      deleted: true,
-
-      counts,
-
-      shift: {
-        id,
-        shiftDate: dateOnly(shift.shift_date),
-        shiftType: shift.shift_type,
-        branchId: shift.branch_id
-      }
-    };
+export async function deleteShiftFast(user,id){
+  if(!await ready())return null;
+  const result=await withTransaction(async db=>{
+    const sr=await db.query(`SELECT * FROM shifts WHERE id=$1`,[id]);if(!sr.rowCount)return {notFound:true};const shift=sr.rows[0];
+    if(user.role!=='ADMIN'&&String(shift.branch_id)!==String(user.branchId||''))return {notFound:true};
+    const c=await db.query(`SELECT (SELECT COUNT(*) FROM care_records WHERE shift_id=$1)::int changes,(SELECT COUNT(*) FROM toileting_logs WHERE shift_id=$1)::int toileting,(SELECT COUNT(*) FROM handovers WHERE shift_id=$1)::int handovers`,[id]);const counts=c.rows[0];
+    if(counts.changes||counts.toileting||counts.handovers)return {blocked:true,counts};
+    await db.query(`DELETE FROM shifts WHERE id=$1`,[id]);
+    return {deleted:true,counts,shift:{id,shiftDate:dateOnly(shift.shift_date),shiftType:shift.shift_type,branchId:shift.branch_id}};
   });
-
   invalidateStoreCache();
-
   return result;
 }

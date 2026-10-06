@@ -1,3 +1,4 @@
+import { shiftPageOptions, paginateShiftRows } from '../services/shift-pagination.service.js';
 import { Router } from 'express';
 import { staffCalendarReport, staffDayReport } from '../services/staff-report.service.js';
 import { v4 as uuid } from 'uuid';
@@ -9,7 +10,7 @@ import { getPool } from '../services/db.service.js';
 import { audit } from '../services/audit.service.js';
 import { notifyUrgentCreated,notifyUrgentResolved } from '../services/telegram.service.js';
 import { sanitizeWoundImages } from '../services/media-retention.service.js';
-import { getStaffOptionsFast,getShiftsFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,getResidentVitalsReportFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
+import { getStaffOptionsFast,getShiftsFast,getShiftsPageFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,getResidentVitalsReportFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
 
 const router = Router();
 // Express 4 does not forward rejected async route handlers to the JSON error middleware.
@@ -337,7 +338,21 @@ router.put('/shifts/:id/glucose-schedule/:residentId',allowPermission('CARE.UPDA
   await audit(req.user,'GLUCOSE_SCHEDULE_UPDATE','resident',resident.residentId,{enabled:req.body.enabled,intervalDays});
   res.json({success:true});
 });
-router.get('/shifts',allowPermission('SHIFT.VIEW'),async(req,res)=>{const fast=await getShiftsFast(req.user);if(fast)return res.json({success:true,data:fast});const s=await getStore();let rows=s.shifts.filter(x=>canAccessShift(req.user,x));rows=rows.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(x=>({...x,residentCount:shiftResidentCount(s,x.id)}));res.json({success:true,data:rows})});
+router.get('/shifts',allowPermission('SHIFT.VIEW'),async(req,res)=>{
+  if(req.query.page!==undefined||req.query.pageSize!==undefined){
+    const options=shiftPageOptions(req.query),fast=await getShiftsPageFast(req.user,options);
+    if(fast)return res.json({success:true,...fast});
+    const store=await getStore();
+    const rows=store.shifts.filter(x=>canAccessShift(req.user,x));
+    const result=paginateShiftRows(rows,options);
+    result.data=result.data.map(x=>({...x,residentCount:shiftResidentCount(store,x.id)}));
+    return res.json({success:true,...result});
+  }
+  const fast=await getShiftsFast(req.user);if(fast)return res.json({success:true,data:fast});
+  const store=await getStore();
+  const rows=store.shifts.filter(x=>canAccessShift(req.user,x)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(x=>({...x,residentCount:shiftResidentCount(store,x.id)}));
+  res.json({success:true,data:rows});
+});
 router.get('/shifts/staff-options',allowPermission('SHIFT.CREATE','SHIFT.UPDATE'),async(req,res)=>{const requestedBranchId=String(req.query.branchId||''),branchId=req.user.role==='ADMIN'?requestedBranchId:String(req.user.branchId||'');if(!branchId)return res.status(400).json({success:false,message:'Thiếu cơ sở.'});const fast=await getStaffOptionsFast(branchId);if(fast!==null)return res.json({success:true,data:fast});const store=await getStore();const staff=(store.staffMembers||[]).filter(x=>x.active!==false&&!x.deleted&&String(x.branchId)===String(branchId)).map(x=>({id:x.id,userId:x.userId||null,username:x.username||'',employeeCode:x.employeeCode,fullName:x.fullName,role:x.role||'STAFF',areaId:x.areaId||null,areaName:x.areaName||''}));res.json({success:true,data:staff})});
 router.post('/shifts',allowPermission('SHIFT.CREATE'),async(req,res)=>{try{res.status(201).json({success:true,data:await createShift(req.user,req.body||{})})}catch(e){res.status(400).json({success:false,message:e.message})}});
 router.patch('/shifts/:id/staff',allowPermission('SHIFT.UPDATE'),async(req,res)=>{const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao; không được đổi danh sách người trực đã dùng để đối chất.'});const requestedIds=[...new Set((Array.isArray(req.body?.assignedStaffIds)?req.body.assignedStaffIds:[]).map(String).filter(Boolean))];const users=await getUsers();const assignedStaff=(s.staffMembers||[]).filter(x=>requestedIds.includes(x.id)&&x.active!==false&&!x.deleted&&String(x.branchId)===String(shift.branchId)).map(x=>{const linked=users.find(u=>u.active&&u.branchId===shift.branchId&&String(u.employeeCode||'').toLowerCase()===String(x.employeeCode).toLowerCase());return{id:x.id,userId:linked?.id||x.userId||null,username:linked?.username||x.username||'',employeeCode:x.employeeCode,fullName:x.fullName,role:linked?.role||x.role||'STAFF',areaId:linked?.areaId||x.areaId||null,areaName:linked?.areaName||x.areaName||''}});if(assignedStaff.length<2||assignedStaff.length!==requestedIds.length)return res.status(422).json({success:false,message:'Mỗi ca phải chọn tối thiểu 2 nhân viên đang hoạt động trong danh sách cơ sở.'});const primaryRecorder=assignedStaff.find(x=>x.id===String(req.body?.primaryRecorderId||''));if(!primaryRecorder)return res.status(422).json({success:false,message:'Phải chọn một người ghi chính trong danh sách nhân sự trực ca.'});let updated={...shift,assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,staffUpdatedAt:new Date().toISOString(),staffUpdatedBy:req.user.sub};const fastUpdated=await updateShiftStaffFast(shift.id,req.user,{assignedStaff,primaryRecorder});if(!fastUpdated)await updateStore(store=>{const row=store.shifts.find(x=>x.id===shift.id);Object.assign(row,updated)});await audit(req.user,'SHIFT_STAFF_UPDATE','shift',shift.id,{assignedStaffIds:updated.assignedStaffIds,assignedStaffNames:updated.assignedStaffNames,primaryRecorderId:updated.primaryRecorderId});res.json({success:true,data:updated})});
@@ -346,266 +361,13 @@ router.post('/shifts/:id/refresh-roster',allowPermission('SHIFT.UPDATE'),async(r
   if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã khóa/bàn giao nên không thể nạp lại roster.'});
   try{const residentCount=await loadRosterForShift(shift,{replace:true});await audit(req.user,'SHIFT_ROSTER_REFRESH','shift',shift.id,{residentCount});res.json({success:true,data:{residentCount}})}catch(e){res.status(502).json({success:false,message:`Không nạp được NCT từ BCARE: ${e.message}`})}
 });
-router.delete(
-  '/shifts/:id',
-  allowPermission('SHIFT.DELETE'),
-
-  async (req, res) => {
-    const id = req.params.id;
-
-    const isAdmin =
-      String(req.user?.role || '')
-        .trim()
-        .toUpperCase() === 'ADMIN';
-
-    console.log('==============================');
-    console.log('[DELETE SHIFT]');
-    console.log('shift id:', id);
-    console.log('user id:', req.user?.id);
-    console.log('role:', req.user?.role);
-    console.log('isAdmin:', isAdmin);
-
-    // =========================================================
-    // POSTGRES / FAST PATH
-    // =========================================================
-    const fast = await deleteShiftFast(
-      req.user,
-      id
-    );
-
-    if (fast) {
-
-      console.log(
-        '[DELETE SHIFT RESULT]',
-        fast
-      );
-
-      // -------------------------------------------------------
-      // KHÔNG TÌM THẤY
-      // -------------------------------------------------------
-      if (fast.notFound) {
-        return res.status(404).json({
-          success: false,
-          message: 'Không tìm thấy ca.'
-        });
-      }
-
-      // -------------------------------------------------------
-      // USER THƯỜNG BỊ CHẶN
-      // -------------------------------------------------------
-      if (fast.blocked) {
-        return res.status(422).json({
-          success: false,
-
-          message:
-            `Không thể xóa ca đã có dữ liệu ` +
-            `(${fast.counts?.changes || 0} biến động, ` +
-            `${fast.counts?.toileting || 0} tiêu/tiểu, ` +
-            `${fast.counts?.handovers || 0} bàn giao). ` +
-            `Chỉ Admin mới được xóa ca đã phát sinh dữ liệu.`,
-
-          data: {
-            counts: fast.counts
-          }
-        });
-      }
-
-      // -------------------------------------------------------
-      // AUDIT
-      // -------------------------------------------------------
-      await audit(
-        req.user,
-        'SHIFT_DELETE',
-        'shift',
-        id,
-        {
-          shiftDate:
-            fast.shift?.shiftDate || '',
-
-          shiftType:
-            fast.shift?.shiftType || '',
-
-          branchId:
-            fast.shift?.branchId || '',
-
-          deletedByAdmin:
-            isAdmin,
-
-          deletedRecords:
-            fast.counts || {}
-        }
-      );
-
-      // -------------------------------------------------------
-      // THÀNH CÔNG
-      // -------------------------------------------------------
-      return res.json({
-        success: true,
-
-        message:
-          isAdmin
-            ? 'Admin đã xóa ca và dữ liệu liên quan.'
-            : 'Đã xóa ca.',
-
-        deletedRecords:
-          fast.counts || {}
-      });
-    }
-
-    // =========================================================
-    // FALLBACK STORE
-    // =========================================================
-
-    const s = await getStore();
-
-    const shift = s.shifts.find(
-      x => x.id === id
-    );
-
-    if (
-      !shift ||
-      !visibleByScope(req.user, shift)
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: 'Không tìm thấy ca.'
-      });
-    }
-
-    const changeCount =
-      s.changeLogs.filter(
-        x => x.shiftId === shift.id
-      ).length;
-
-    const toiletCount =
-      s.toiletingLogs.filter(
-        x => x.shiftId === shift.id
-      ).length;
-
-    const handoverCount =
-      s.handovers.filter(
-        x => x.shiftId === shift.id
-      ).length;
-
-    const hasData =
-      changeCount > 0 ||
-      toiletCount > 0 ||
-      handoverCount > 0;
-
-    // =========================================================
-    // USER THƯỜNG:
-    // KHÔNG ĐƯỢC XÓA CA ĐÃ CÓ DATA
-    // =========================================================
-    if (!isAdmin && hasData) {
-      return res.status(422).json({
-        success: false,
-
-        message:
-          `Không thể xóa ca đã có dữ liệu ` +
-          `(${changeCount} biến động, ` +
-          `${toiletCount} tiêu/tiểu, ` +
-          `${handoverCount} bàn giao). ` +
-          `Chỉ Admin mới được xóa ca đã phát sinh dữ liệu.`
-      });
-    }
-
-    // =========================================================
-    // ADMIN:
-    // DỌN DỮ LIỆU CON TRONG STORE
-    // =========================================================
-    await updateStore(store => {
-
-      if (isAdmin) {
-        store.changeLogs =
-          store.changeLogs.filter(
-            x => x.shiftId !== shift.id
-          );
-
-        store.toiletingLogs =
-          store.toiletingLogs.filter(
-            x => x.shiftId !== shift.id
-          );
-
-        store.handovers =
-          store.handovers.filter(
-            x => x.shiftId !== shift.id
-          );
-      }
-
-      store.shiftResidents =
-        store.shiftResidents.filter(
-          x => x.shiftId !== shift.id
-        );
-
-      // phòng trường hợp store có shiftStaff
-      if (Array.isArray(store.shiftStaff)) {
-        store.shiftStaff =
-          store.shiftStaff.filter(
-            x => x.shiftId !== shift.id
-          );
-      }
-
-      store.shifts =
-        store.shifts.filter(
-          x => x.id !== shift.id
-        );
-    });
-
-    // =========================================================
-    // AUDIT FALLBACK
-    // =========================================================
-    await audit(
-      req.user,
-      'SHIFT_DELETE',
-      'shift',
-      shift.id,
-      {
-        shiftDate:
-          shift.shiftDate,
-
-        shiftType:
-          shift.shiftType,
-
-        branchId:
-          shift.branchId,
-
-        deletedByAdmin:
-          isAdmin,
-
-        deletedRecords: {
-          changes:
-            changeCount,
-
-          toileting:
-            toiletCount,
-
-          handovers:
-            handoverCount
-        }
-      }
-    );
-
-    return res.json({
-      success: true,
-
-      message:
-        isAdmin
-          ? 'Admin đã xóa ca và dữ liệu liên quan.'
-          : 'Đã xóa ca.',
-
-      deletedRecords: {
-        changes:
-          changeCount,
-
-        toileting:
-          toiletCount,
-
-        handovers:
-          handoverCount
-      }
-    });
-  }
-);
+router.delete('/shifts/:id',allowPermission('SHIFT.DELETE'),async(req,res)=>{
+  const fast=await deleteShiftFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(fast.blocked)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${fast.counts.changes} biến động, ${fast.counts.toileting} tiêu/tiểu, ${fast.counts.handovers} bàn giao). Cần giữ ca đã có dữ liệu để bảo toàn lịch sử.`});await audit(req.user,'SHIFT_DELETE','shift',req.params.id,{shiftDate:fast.shift.shiftDate,shiftType:fast.shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:fast.counts});return res.json({success:true,deletedRecords:fast.counts});}
+  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!visibleByScope(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca'});const changeCount=s.changeLogs.filter(x=>x.shiftId===shift.id).length,toiletCount=s.toiletingLogs.filter(x=>x.shiftId===shift.id).length,handoverCount=s.handovers.filter(x=>x.shiftId===shift.id).length;if(changeCount||toiletCount||handoverCount)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${changeCount} biến động, ${toiletCount} tiêu/tiểu, ${handoverCount} bàn giao). Cần giữ ca đã có dữ liệu để bảo toàn lịch sử.`});await updateStore(store=>{if([...store.changeLogs,...store.toiletingLogs,...store.handovers].some(x=>x.shiftId===shift.id)){const error=new Error('Ca vừa phát sinh dữ liệu; không thể xóa.');error.status=409;throw error}store.shifts=store.shifts.filter(x=>x.id!==shift.id);store.shiftResidents=store.shiftResidents.filter(x=>x.shiftId!==shift.id)});await audit(req.user,'SHIFT_DELETE','shift',shift.id,{shiftDate:shift.shiftDate,shiftType:shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}});res.json({success:true,deletedRecords:{changes:changeCount,toileting:toiletCount,handovers:handoverCount}})});
+router.get('/shifts/:id',allowPermission('SHIFT.VIEW'),async(req,res)=>{
+  const fast=await getShiftDetailFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});return res.json({success:true,data:fast});}
+  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});const residents=s.shiftResidents.filter(x=>x.shiftId===shift.id&&visibleByScope(req.user,x));const changes=s.changeLogs.filter(x=>x.shiftId===shift.id&&!x.deleted).map(withAttention);const toileting=s.toiletingLogs.filter(x=>x.shiftId===shift.id&&!x.deleted);const alertIds=new Set(changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').map(x=>x.residentId));const alerts=residents.filter(x=>alertIds.has(x.residentId));res.json({success:true,data:{shift,residents,changes,toileting,alerts}});
+});
 router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
   const b=req.body||{},s=await getStore(),shift=s.shifts.find(x=>x.id===b.shiftId);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Ca không hợp lệ hoặc bạn không thuộc ca trực'});const duplicate=b.clientRequestId&&s.changeLogs.find(x=>x.clientRequestId===b.clientRequestId&&x.createdBy===req.user.sub);if(duplicate)return res.json({success:true,data:withAttention(duplicate),duplicate:true});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao nên bị khóa. Chỉ Admin mới được sửa hoặc xóa bản ghi đã có; không được thêm mới.'});
   const allowedEvents=new Set(['OBSERVATION','FALL','PAIN','MEAL','RESPIRATORY','SKIN','BEHAVIOR','FAMILY','OTHER']);

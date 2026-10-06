@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const label = type => type === 'MORNING' ? 'Ca sáng' : 'Ca tối';
+const label = type => ({ MORNING: 'Ca sáng', AFTERNOON: 'Ca chiều', NIGHT: 'Ca tối' }[type] || type);
 const todayVN = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 const freshForm = user => ({
   shiftDate: todayVN(), shiftType: 'MORNING',
@@ -16,6 +16,9 @@ export default function Shifts() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState([]);
+  const [listQuery, setListQuery] = useState({ page: 1, pageSize: 10 });
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 10, total: 0, totalPages: 1 });
+  const requestSequence = useRef(0);
   const [branches, setBranches] = useState([]);
   const [locations, setLocations] = useState({ areas: [], rooms: [] });
   const [staffOptions, setStaffOptions] = useState([]);
@@ -33,17 +36,26 @@ export default function Shifts() {
   const canDelete = can('SHIFT.DELETE');
 
   async function load() {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
       setErr('');
-      const r = await api.shifts();
+      const r = await api.shifts(listQuery);
+      if (sequence !== requestSequence.current) return;
       setRows(r.data || []);
+      setPagination(r.pagination);
+      if (r.pagination.page !== listQuery.page) setListQuery(current => ({ ...current, page: r.pagination.page }));
     } catch (e) {
-      setErr(e.message);
+      if (sequence === requestSequence.current) setErr(e.message);
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }
+
+  useEffect(() => {
+    load();
+    return () => { requestSequence.current++; };
+  }, [listQuery.page, listQuery.pageSize]);
 
   async function loadBranchData(branchId) {
     if (!branchId) {
@@ -70,7 +82,6 @@ export default function Shifts() {
   }
 
   useEffect(() => {
-    load();
     api.branches().then(r => setBranches(r.data || [])).catch(e => setErr(e.message));
     if (form.branchId && canCreate) loadBranchData(form.branchId);
     if (canCreate && searchParams.get('create') === '1') { setShow(true); setSearchParams({}, { replace: true }); }
@@ -139,85 +150,45 @@ export default function Shifts() {
   }
 
   async function refreshRoster(row) {
-    setRefreshingId(row.id);
-    setErr('');
-    setInfo('');
-  
+    setRefreshingId(row.id); setErr(''); setInfo('');
     try {
       const r = await api.refreshShiftRoster(row.id);
-  
-      const count = Number(r?.data?.residentCount || 0);
-  
-      setInfo(
-        count > 0
-          ? `Đã nạp lại ${count} NCT từ BCARE cho ${label(row.shiftType)}.`
-          : 'BCARE trả 0 NCT cho bộ lọc cơ sở/khu/phòng của ca này.'
-      );
-  
+      if (!r?.data?.id) throw new Error('Không nhận được mã ca vừa tạo.');
+        navigate(`/shifts/${encodeURIComponent(r.data.id)}`);
+        return;
+        const count = Number(r?.data?.residentCount || 0);
+      setInfo(count ? `Đã nạp lại ${count} NCT từ BCARE cho ${label(row.shiftType)}.` : 'BCARE trả 0 NCT cho bộ lọc cơ sở/khu/phòng của ca này.');
       await load();
     } catch (e) {
-      setErr(e.message || 'Không thể nạp lại danh sách NCT.');
+      setErr(e.message);
     } finally {
       setRefreshingId('');
     }
   }
 
   async function removeShift(row) {
-    setErr('');
-    setInfo('');
-  
-    const isAdmin = user?.role === 'ADMIN';
-  
-    const warning = isAdmin
-      ? 'Bạn đang dùng quyền Admin. Nếu ca có dữ liệu chăm sóc, hệ thống có thể xóa toàn bộ dữ liệu liên quan.'
-      : 'Chỉ được xóa ca chưa phát sinh dữ liệu.';
-  
-    const ok = window.confirm(
-      `Xóa ${label(row.shiftType)} ngày ${row.shiftDate}?\n\n${warning}`
-    );
-  
-    if (!ok) return;
-  
-    try {
-      await api.deleteShift(row.id);
-  
-      setInfo(
-        `Đã xóa ${label(row.shiftType)} ngày ${row.shiftDate}.`
-      );
-  
-      await load();
-    } catch (e) {
-      if (e?.status === 422) {
-        setErr(
-          e.message ||
-          'Ca đã phát sinh dữ liệu chăm sóc hoặc bàn giao nên không thể xóa.'
-        );
-        return;
-      }
-  
-      if (e?.status === 403) {
-        setErr('Bạn không có quyền xóa ca này.');
-        return;
-      }
-  
-      if (e?.status === 404) {
-        setErr('Không tìm thấy ca hoặc ca đã được xóa.');
-        await load();
-        return;
-      }
-  
-      setErr(e?.message || 'Không thể xóa ca.');
-    }
+    const warning = user.role === 'ADMIN' ? 'Admin sẽ xóa cả dữ liệu con của ca và audit vẫn lưu thao tác.' : 'Chỉ ca chưa có dữ liệu mới được xóa.';
+    if (!confirm(`Xóa ${label(row.shiftType)} ngày ${row.shiftDate}? ${warning}`)) return;
+    try { setErr(''); setInfo(''); await api.deleteShift(row.id); setInfo('Đã xóa ca.'); await load(); }
+    catch (e) { setErr(e.message); }
   }
 
   const today = todayVN();
   return <section>
     <header className="page-head">
-      <div><h1>Ca chăm sóc</h1><p>Mỗi ca có tối thiểu 2 nhân sự, 1 người ghi chính và roster NCT lấy từ BCARE.</p></div>
+      <div><h1>Ca chăm sóc</h1><p>Danh sách tất cả ca trong phạm vi được giao, gồm ca đang mở và ca đã bàn giao.</p></div>
       {canCreate && <button type="button" onClick={() => { if (show) { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); return; } setShow(true); setEditingShiftId(null); const next = freshForm(user); setForm(next); if (next.branchId) loadBranchData(next.branchId); }}>+ Tạo ca</button>}
     </header>
 
-    {err && <div className="error">{err}</div>}
+    <div className="panel actions" aria-label="Phân trang danh sách ca">
+      <label>Số ca mỗi trang <select value={listQuery.pageSize} disabled={loading} onChange={e => setListQuery({ page: 1, pageSize: Number(e.target.value) })}>{[10,20,50].map(n => <option value={n} key={n}>{n} ca</option>)}</select></label>
+      <span aria-live="polite">{loading ? 'Đang tải danh sách…' : `Trang ${pagination.page}/${pagination.totalPages} · ${pagination.total} ca`}</span>
+      <button className="secondary" disabled={loading || pagination.page <= 1} onClick={() => setListQuery(q => ({ ...q, page: pagination.page - 1 }))}>← Trang trước</button>
+      <button className="secondary" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => setListQuery(q => ({ ...q, page: pagination.page + 1 }))}>Trang sau →</button>
+      <button className="secondary" disabled={loading} onClick={load}>Tải lại</button>
+      <Link className="button-link secondary" to="/shift-history">Báo cáo ca sáng / tối</Link>
+    </div>
+    {err && <div className="error" role="alert">{err}</div>}
     {info && <div className="success-note">{info}</div>}
 
     {show && <form className="panel shift-create-form" onSubmit={submit}>
@@ -243,10 +214,10 @@ export default function Shifts() {
       <div className="actions"><button disabled={busy || branchLoading || form.assignedStaffIds.length < 2 || !form.primaryRecorderId}>{busy ? 'Đang lưu và nạp NCT...' : editingShiftId ? 'Lưu phân công' : 'Tạo ca & nạp roster BCARE'}</button><button type="button" className="secondary" onClick={() => { setShow(false); setEditingShiftId(null); setForm(freshForm(user)); }}>Hủy</button></div>
     </form>}
 
-    {loading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải ca chăm sóc...</b><small>Đang đọc dữ liệu ca và roster.</small></div></div> : <div className="cards">{rows.map(x => <div className={`shift-card operational ${Number(x.residentCount || 0) === 0 ? 'roster-empty' : ''}`} key={x.id}>
+    {loading ? <div className="page-loading" role="status" aria-live="polite"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải ca chăm sóc...</b><small>Đang tải trang {listQuery.page}, tối đa {listQuery.pageSize} ca.</small></div></div> : <div className="cards">{rows.map(x => <div className={`shift-card operational ${Number(x.residentCount || 0) === 0 ? 'roster-empty' : ''}`} key={x.id}>
       <div><b>{x.shiftDate === today ? 'Hôm nay • ' : ''}{label(x.shiftType)}</b><span>{x.branchName}</span><small>{x.areaName || 'Toàn cơ sở'} • <b>{x.residentCount ?? 0} NCT</b></small><small><b>Nhân sự:</b> {(x.assignedStaff || []).length ? x.assignedStaff.map(s => `${s.fullName} (${s.employeeCode || s.username || '—'})`).join(', ') : 'Ca cũ chưa phân công'}</small><small><b>Người ghi chính:</b> {x.primaryRecorderName || x.assignedStaffName || 'Chưa chọn'}</small>{Number(x.residentCount || 0) === 0 && <small className="roster-warning">Chưa có NCT trong roster — nạp lại từ BCARE.</small>}</div>
-      <div className="shift-enter"><span className={`badge ${x.status}`}>{x.status}</span><Link className="shift-open-link" to={`/shifts/${x.id}`}>Vào ca →</Link>{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" disabled={refreshingId === x.id} onClick={() => refreshRoster(x)}>{refreshingId === x.id ? 'Đang nạp...' : '↻ Nạp lại NCT'}</button>}{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" onClick={() => editStaff(x)}>Sửa nhân sự</button>}{canDelete && <button className="danger compact-button" onClick={() => removeShift(x)}>Xóa ca</button>}</div>
+      <div className="shift-enter"><span className={`badge ${x.status}`}>{x.status}</span><Link className="shift-open-link" to={`/shifts/${x.id}`}>{x.status === 'OPEN' ? 'Vào ca →' : 'Xem ca →'}</Link><Link className="button-link secondary" to={`/shift-history/${encodeURIComponent(x.id)}`}>Báo cáo chi tiết</Link>{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" disabled={refreshingId === x.id} onClick={() => refreshRoster(x)}>{refreshingId === x.id ? 'Đang nạp...' : '↻ Nạp lại NCT'}</button>}{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" onClick={() => editStaff(x)}>Sửa nhân sự</button>}{canDelete && <button className="danger compact-button" onClick={() => removeShift(x)}>Xóa ca</button>}</div>
     </div>)}</div>}
-    {!loading && !rows.length && <div className="empty shift-empty"><b>Chưa có ca trong phạm vi này.</b><span>Tạo ca, chọn tối thiểu 2 nhân sự và nạp roster NCT từ BCARE.</span></div>}
+    {!loading && !err && !rows.length && <div className="empty shift-empty"><b>Chưa có ca trong phạm vi này.</b><span>Tạo ca, chọn tối thiểu 2 nhân sự và nạp roster NCT từ BCARE.</span></div>}
   </section>;
 }
