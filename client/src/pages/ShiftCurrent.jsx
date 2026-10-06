@@ -28,9 +28,9 @@ export default function ShiftCurrent(){
     return()=>{active=false};
   },[navigate,user?.sub,user?.id,user?.employeeCode,user?.role]);
 
-  if(error)return <section className="card"><h1>Ca chăm sóc</h1><p className="error">{error}</p><Link to="/shifts">Xem danh sách ca</Link></section>;
+  if(error)return <section className="card"><h1>Ca chăm sóc</h1><Link className="button-link secondary" to="/shift-history">Xem báo cáo ca sáng / tối</Link><p className="error">{error}</p><Link to="/shifts">Xem danh sách ca</Link></section>;
   if(candidates===null)return <section className="card">Đang tìm ca đang mở…</section>;
-  return <section className="card"><h1>Ca chăm sóc</h1>
+  return <section className="card"><h1>Ca chăm sóc</h1><Link className="button-link secondary" to="/shift-history">Xem báo cáo ca sáng / tối</Link>
     {!candidates.length?<p>Hôm nay chưa có ca đang mở phù hợp. <Link to="/shifts">Xem danh sách hoặc tạo ca</Link>.</p>:<>
       <p>Có nhiều ca đang mở; chọn đúng ca để ghi nhận:</p>
       <div className="cards">{candidates.map(shift=><Link key={shift.id} to={`/shifts/${encodeURIComponent(shift.id)}`} className="log-card"><b>{shift.shiftType==='MORNING'?'Ca sáng':'Ca tối'} · {shift.branchName}</b><small>{shift.areaName||'Toàn cơ sở'} · {shift.assignedStaffNames?.join(', ')||''}</small></Link>)}</div>

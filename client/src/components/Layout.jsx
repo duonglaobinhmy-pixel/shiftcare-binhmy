@@ -8,6 +8,7 @@ import AIChat from './AIChat';
 const MENU_ITEMS=[
   {to:'/',label:'Tổng quan',permission:'DASHBOARD.VIEW',icon:'⌂',end:true},
   {to:'/shifts/current',label:'Ca chăm sóc',permission:'SHIFT.VIEW',icon:'◷'},
+  {to:'/shift-history',label:'Báo cáo từng ca',permission:'SHIFT.VIEW',icon:'▤'},
   // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
   {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},

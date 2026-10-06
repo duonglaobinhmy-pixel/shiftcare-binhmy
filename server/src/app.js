@@ -175,6 +175,10 @@ async function loadApplicationModules() {
     console.log('[IMPORT OPERATIONS] operations.routes.js OK');
     app.use('/api', operationsRoutes);
 
+    const { default: shiftHistoryRoutes } =
+      await import('./routes/shift-history.routes.js');
+    app.use('/api/shift-history', shiftHistoryRoutes);
+
     // Register the authenticated catch-all router after the public DB health route.
     app.use('/api', coreRoutes);
 

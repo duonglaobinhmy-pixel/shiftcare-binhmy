@@ -33,6 +33,7 @@ async function writeWithQueue(kind,path,body,opts={}){try{return await request(p
 const rangeQs=(from='',to='',extra={})=>{const q=new URLSearchParams();if(from)q.set('from',from);if(to)q.set('to',to);Object.entries(extra||{}).forEach(([k,v])=>{if(v)q.set(k,v)});return q.toString()?`?${q}`:''};
 export const api={
  login:(body)=>request('/auth/login',{method:'POST',body}),me:()=>request('/auth/me'),
+ shiftHistory:(filters={})=>request(`/shift-history?${new URLSearchParams(filters)}`),shiftHistoryDetail:(id)=>request(`/shift-history/${encodeURIComponent(id)}`),
  dashboard:(date='')=>request(`/dashboard${date?`?date=${encodeURIComponent(date)}`:''}`),
  residents:(body)=>request('/bcare/residents',{method:'POST',body}),diagnostics:()=>request('/bcare/diagnostics'),branches:()=>request('/bcare/branches'),locations:(branchId)=>request(`/bcare/locations?branchId=${encodeURIComponent(branchId||'')}`),
  activeShiftForResident:(residentId)=>request(`/residents/${residentId}/open-shift`),ensureShiftForResident:(resident)=>request(`/residents/${resident.id}/ensure-open-shift`,{method:'POST',body:{resident}}),

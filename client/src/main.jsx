@@ -14,6 +14,7 @@ import ShiftCurrent from './pages/ShiftCurrent';
 import ShiftRecords from './pages/ShiftRecords';
 import Reports from './pages/Reports';
 import OperationsReports from './pages/OperationsReports';
+import ShiftHistory from './pages/ShiftHistory';
 import StaffReports from './pages/StaffReports';
 import StaffReportDay from './pages/StaffReportDay';
 import ResidentReportDetail from './pages/ResidentReportDetail';
@@ -41,6 +42,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="shifts/:id/records/:filter" element={<ShiftRecords/>}/>
             <Route path="shifts/:id/entry" element={<ShiftEntryPicker/>}/>
             <Route path="shifts/:id/entry/:residentId" element={<ShiftDetail/>}/>
+            <Route path="shift-history" element={<ProtectedRoute permission="SHIFT.VIEW"><ShiftHistory/></ProtectedRoute>}/>
+            <Route path="shift-history/:id" element={<ProtectedRoute permission="SHIFT.VIEW"><ShiftHistory/></ProtectedRoute>}/>
             <Route path="cskh" element={<ProtectedRoute permission="CSKH.VIEW"><OperationsReports customer/></ProtectedRoute>}/>
             <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><Reports/></ProtectedRoute>}/>
             <Route path="reports/staff" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><StaffReports/></ProtectedRoute>}/>
