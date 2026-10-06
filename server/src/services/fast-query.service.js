@@ -583,16 +583,171 @@ export async function replaceShiftRosterFast(shift,items){
   return items.length;
 }
 
-export async function deleteShiftFast(user,id){
-  if(!await ready())return null;
-  const result=await withTransaction(async db=>{
-    const sr=await db.query(`SELECT * FROM shifts WHERE id=$1`,[id]);if(!sr.rowCount)return {notFound:true};const shift=sr.rows[0];
-    if(user.role!=='ADMIN'&&String(shift.branch_id)!==String(user.branchId||''))return {notFound:true};
-    const c=await db.query(`SELECT (SELECT COUNT(*) FROM care_records WHERE shift_id=$1)::int changes,(SELECT COUNT(*) FROM toileting_logs WHERE shift_id=$1)::int toileting,(SELECT COUNT(*) FROM handovers WHERE shift_id=$1)::int handovers`,[id]);const counts=c.rows[0];
-    if(counts.changes||counts.toileting||counts.handovers)return {blocked:true,counts};
-    await db.query(`DELETE FROM shifts WHERE id=$1`,[id]);
-    return {deleted:true,counts,shift:{id,shiftDate:dateOnly(shift.shift_date),shiftType:shift.shift_type,branchId:shift.branch_id}};
+export async function deleteShiftFast(user, id) {
+  if (!await ready()) return null;
+
+  const result = await withTransaction(async db => {
+    // =========================================================
+    // 1. LẤY CA
+    // =========================================================
+    const shiftResult = await db.query(
+      `
+      SELECT *
+      FROM shifts
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (!shiftResult.rowCount) {
+      return {
+        notFound: true
+      };
+    }
+
+    const shift = shiftResult.rows[0];
+
+    const isAdmin =
+      String(user?.role || '')
+        .trim()
+        .toUpperCase() === 'ADMIN';
+
+    // =========================================================
+    // 2. KIỂM TRA PHẠM VI CƠ SỞ
+    // =========================================================
+    if (
+      !isAdmin &&
+      String(shift.branch_id) !== String(user?.branchId || '')
+    ) {
+      return {
+        notFound: true
+      };
+    }
+
+    // =========================================================
+    // 3. ĐẾM DỮ LIỆU CON CỦA CA
+    // =========================================================
+    const countResult = await db.query(
+      `
+      SELECT
+
+        (
+          SELECT COUNT(*)
+          FROM care_records
+          WHERE shift_id = $1
+        )::int AS changes,
+
+        (
+          SELECT COUNT(*)
+          FROM toileting_logs
+          WHERE shift_id = $1
+        )::int AS toileting,
+
+        (
+          SELECT COUNT(*)
+          FROM handovers
+          WHERE shift_id = $1
+        )::int AS handovers
+      `,
+      [id]
+    );
+
+    const counts = countResult.rows[0] || {
+      changes: 0,
+      toileting: 0,
+      handovers: 0
+    };
+
+    const hasData =
+      Number(counts.changes || 0) > 0 ||
+      Number(counts.toileting || 0) > 0 ||
+      Number(counts.handovers || 0) > 0;
+
+    // =========================================================
+    // 4. USER THƯỜNG:
+    //    CA ĐÃ PHÁT SINH DỮ LIỆU THÌ KHÔNG ĐƯỢC XÓA
+    // =========================================================
+    if (!isAdmin && hasData) {
+      return {
+        blocked: true,
+        counts
+      };
+    }
+
+    // =========================================================
+    // 5. ADMIN:
+    //    XÓA CÁC DỮ LIỆU CON TRƯỚC
+    // =========================================================
+    if (isAdmin) {
+
+      // care_record_vitals / care_record_images
+      // nếu FK cascade theo care_records thì tự xóa theo.
+      await db.query(
+        `
+        DELETE FROM care_records
+        WHERE shift_id = $1
+        `,
+        [id]
+      );
+
+      await db.query(
+        `
+        DELETE FROM toileting_logs
+        WHERE shift_id = $1
+        `,
+        [id]
+      );
+
+      // handover_signatures nếu cascade theo handovers
+      // sẽ tự xóa theo.
+      await db.query(
+        `
+        DELETE FROM handovers
+        WHERE shift_id = $1
+        `,
+        [id]
+      );
+    }
+
+    // =========================================================
+    // 6. XÓA CA
+    //
+    // shift_staff / shift_residents nếu đang
+    // ON DELETE CASCADE thì tự bị dọn.
+    // =========================================================
+    const deletedResult = await db.query(
+      `
+      DELETE FROM shifts
+      WHERE id = $1
+      RETURNING id
+      `,
+      [id]
+    );
+
+    if (!deletedResult.rowCount) {
+      return {
+        notFound: true
+      };
+    }
+
+    // =========================================================
+    // 7. TRẢ KẾT QUẢ
+    // =========================================================
+    return {
+      deleted: true,
+
+      counts,
+
+      shift: {
+        id,
+        shiftDate: dateOnly(shift.shift_date),
+        shiftType: shift.shift_type,
+        branchId: shift.branch_id
+      }
+    };
   });
+
   invalidateStoreCache();
+
   return result;
 }
