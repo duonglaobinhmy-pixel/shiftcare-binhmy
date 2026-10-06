@@ -168,6 +168,13 @@ async function loadApplicationModules() {
       }
     });
 
+    // CSKH, reporting, follow-ups and operations APIs must be mounted before API 404.
+    console.log('[IMPORT OPERATIONS] operations.routes.js...');
+    const { default: operationsRoutes } =
+      await import('./routes/operations.routes.js');
+    console.log('[IMPORT OPERATIONS] operations.routes.js OK');
+    app.use('/api', operationsRoutes);
+
     // Register the authenticated catch-all router after the public DB health route.
     app.use('/api', coreRoutes);
 
