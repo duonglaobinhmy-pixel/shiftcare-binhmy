@@ -5,6 +5,7 @@ import { CARE_BRANCHES } from '../config/branches.js';
 
 const router = Router();
 router.use(authenticate);
+router.use((req,res,next)=>req.user.role==='CSKH'&&req.path!=='/branches'?res.status(403).json({success:false,message:'CSKH dùng API V2 theo phạm vi.'}):next());
 
 router.get('/diagnostics', allowRoles('ADMIN', 'BRANCH_DIRECTOR'), async (_req, res) => {
   res.json(await diagnostics());
@@ -12,7 +13,7 @@ router.get('/diagnostics', allowRoles('ADMIN', 'BRANCH_DIRECTOR'), async (_req, 
 
 router.get('/branches', (req, res) => {
   let rows = CARE_BRANCHES;
-  if (req.user.role !== 'ADMIN') rows = rows.filter(x => x.id === req.user.branchId);
+  if (req.user.role !== 'ADMIN') rows = rows.filter(x => (req.user.userScopes?.length ? req.user.userScopes.some(g=>g.branchId===x.id&&(!g.validFrom||g.validFrom<=new Date().toISOString())&&(!g.validTo||new Date().toISOString()<g.validTo)) : x.id === req.user.branchId));
   res.json({ success:true, data:rows });
 });
 

@@ -168,6 +168,9 @@ async function loadApplicationModules() {
       }
     });
 
+    const { default: operationsRoutes } = await import('./routes/operations.routes.js');
+    app.use('/api', operationsRoutes);
+
     // Register the authenticated catch-all router after the public DB health route.
     app.use('/api', coreRoutes);
 

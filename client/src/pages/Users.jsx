@@ -8,7 +8,9 @@ const PERMISSION_GROUPS = [
   { module: 'CARE', label: 'Ghi nhận chăm sóc', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
   { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
-  { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
+  { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT','FINALIZE'] },
+  { module: 'FOLLOWUP',label:'Việc được giao',actions:['VIEW','UPDATE'] },
+  { module: 'CSKH', label:'Theo dõi & CSKH',actions:['VIEW','CREATE','UPDATE'] },
   { module: 'AUDIT', label: 'Nhật ký hệ thống', actions: ['VIEW'] },
   { module: 'USER', label: 'Tài khoản & nhân sự', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'SYSTEM', label: 'Kết nối hệ thống', actions: ['VIEW', 'UPDATE'] },
@@ -24,6 +26,7 @@ const ROLE_LABEL = {
   ADMIN: 'Admin',
   BRANCH_DIRECTOR: 'Giám đốc cơ sở',
   CARE_SHARED: 'Tài khoản CSV dùng chung',
+  CSKH: 'Chăm sóc khách hàng',
 };
 
 const ROLE_CAPS = {
@@ -34,13 +37,14 @@ const ROLE_CAPS = {
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
-    'REPORT.VIEW', 'REPORT.EXPORT',
+    'REPORT.VIEW', 'REPORT.EXPORT','REPORT.FINALIZE','CSKH.VIEW','CSKH.CREATE','CSKH.UPDATE','FOLLOWUP.VIEW','FOLLOWUP.UPDATE',
     'AUDIT.VIEW',
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
-    'SYSTEM.VIEW',
+    'SYSTEM.VIEW','SYSTEM.UPDATE',
   ],
+  CSKH: ['REPORT.VIEW','REPORT.EXPORT','CSKH.VIEW','CSKH.CREATE','CSKH.UPDATE'],
   CARE_SHARED: [
-    'SHIFT.VIEW', 'SHIFT.CREATE',
+    'SHIFT.VIEW', 'SHIFT.CREATE','FOLLOWUP.VIEW','FOLLOWUP.UPDATE',
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
@@ -51,6 +55,7 @@ const ROLE_DEFAULTS = {
   ADMIN: [],
   BRANCH_DIRECTOR: [...ROLE_CAPS.BRANCH_DIRECTOR],
   CARE_SHARED: [...ROLE_CAPS.CARE_SHARED],
+  CSKH: [...ROLE_CAPS.CSKH],
 };
 
 const emptyAccountForm = () => ({
@@ -61,6 +66,7 @@ const emptyAccountForm = () => ({
   branchId: '',
   branchName: '',
   permissions: [...ROLE_DEFAULTS.BRANCH_DIRECTOR],
+  userScopesText:'[]',
 });
 
 export default function Users() {
@@ -182,6 +188,7 @@ export default function Users() {
         branchId: form.role === 'ADMIN' ? null : form.branchId,
         branchName: form.role === 'ADMIN' ? '' : (selectedBranch?.name || form.branchName || ''),
         permissions: form.role === 'ADMIN' ? [] : form.permissions,
+        userScopes: JSON.parse(form.userScopesText||'[]'),
       };
       if (form.password) payload.password = form.password;
       if (editingId) await api.updateUser(editingId, payload);
@@ -209,6 +216,7 @@ export default function Users() {
       password: '',
       fullName: row.fullName || '',
       role: row.role,
+      userScopesText: JSON.stringify(row.userScopes||[],null,2),
       branchId: row.branchId || '',
       branchName: row.branchName || '',
       permissions: Array.isArray(row.permissions) ? [...row.permissions] : [...(ROLE_DEFAULTS[row.role] || [])],
@@ -343,10 +351,11 @@ export default function Users() {
         <label>Username *<input disabled={!!editingId} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />{fieldErrors.username && <small className="field-error">{fieldErrors.username}</small>}</label>
         <label>{editingId ? 'Mật khẩu mới' : 'Mật khẩu *'}<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />{fieldErrors.password && <small className="field-error">{fieldErrors.password}</small>}</label>
         <label>Tên hiển thị *<input value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />{fieldErrors.fullName && <small className="field-error">{fieldErrors.fullName}</small>}</label>
-        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option></select></label>
+        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option><option value="CSKH">Chăm sóc khách hàng</option></select></label>
         {form.role !== 'ADMIN' && <label>Cơ sở *<select value={form.branchId} onChange={e => { const b = branches.find(x => String(x.id) === String(e.target.value)); setForm(current => ({ ...current, branchId: e.target.value, branchName: b?.name || '' })); }}><option value="">-- Chọn cơ sở --</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>{fieldErrors.branchId && <small className="field-error">{fieldErrors.branchId}</small>}</label>}
       </div>
 
+      {isAdmin&&form.role!=='ADMIN'&&<label>Phạm vi nâng cao (JSON; [] dùng cơ sở chính)<textarea value={form.userScopesText||'[]'} onChange={e=>setForm(v=>({...v,userScopesText:e.target.value}))} placeholder={'[{"branchId":"...","zoneId":"...","floorId":"...","residentId":"...","validFrom":"2026-10-06T00:00:00Z"}]'}/></label>}
       {form.role === 'ADMIN' ? <div className="permission-section"><div className="permission-head"><div><h3>Admin</h3><p>Admin luôn có toàn quyền hệ thống. Không cần tick từng quyền.</p></div></div></div> :
       <div className="permission-section">
         <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>Role chỉ là trần quyền; quyền thực tế là những ô đang được tick.</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>

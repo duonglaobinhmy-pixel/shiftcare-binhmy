@@ -22,6 +22,7 @@ for(const method of ['get','post','put','patch','delete']){
   ));
 }
 router.use(authenticate);
+router.use((req,res,next)=>(req.user.role==='CSKH'||(req.user.role!=='ADMIN'&&req.user.userScopes?.length)) ? res.status(403).json({success:false,message:'CSKH dùng màn hình theo dõi và API báo cáo V2 theo phạm vi.'}) : next());
 router.use(async (req, res, next) => {
   try {
     const shiftMatch = req.path.match(/^\/shifts\/([^/]+)(?:\/|$)/);
@@ -519,9 +520,17 @@ router.get('/reports/staff',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const ensurePerson=(person,branchName='')=>{const key=String(person.id||person.userId||person.employeeCode||person.fullName);if(!byId.has(key))byId.set(key,{id:key,userId:person.userId||null,employeeCode:person.employeeCode||'',fullName:person.fullName||person.username||'NhĂ¢n viĂªn',branchName:branchName||person.branchName||'',shiftCount:0,primaryCount:0,changeCount:0,redCount:0,openCount:0,shiftIds:[],shifts:[]});return byId.get(key)};
   const calendar=shifts.map(shift=>({id:shift.id,shiftDate:shift.shiftDate,shiftType:shift.shiftType,status:shift.status,branchId:shift.branchId,branchName:shift.branchName||'',areaName:shift.areaName||'ToĂ n cÆ¡ sá»Ÿ',handover:!!handovers.find(h=>h.shiftId===shift.id&&h.confirmedAt),primaryRecorderId:shift.primaryRecorderId||shift.assignedStaffId||'',primaryRecorderName:shift.primaryRecorderName||shift.assignedStaffName||'',staff:(shift.assignedStaff||[]).map(p=>({id:p.id,userId:p.userId||null,employeeCode:p.employeeCode||'',fullName:p.fullName||'',isPrimary:String(p.id)===String(shift.primaryRecorderId||shift.assignedStaffId||'')}))}));
   for(const shift of shifts){for(const person of (shift.assignedStaff||[])){const row=ensurePerson(person,shift.branchName||'');row.shiftCount++;if(String(person.id)===String(shift.primaryRecorderId))row.primaryCount++;row.shiftIds.push(shift.id);row.shifts.push({id:shift.id,shiftDate:shift.shiftDate,shiftType:shift.shiftType,status:shift.status,areaName:shift.areaName||'ToĂ n cÆ¡ sá»Ÿ',branchName:shift.branchName||'',handover:!!handovers.find(h=>h.shiftId===shift.id&&h.confirmedAt),staff:(shift.assignedStaff||[]).map(p=>({id:p.id,employeeCode:p.employeeCode||'',fullName:p.fullName||''}))})}}
-  for(const c of changes){const shift=shifts.find(s=>String(s.id)===String(c.shiftId));for(const person of (shift?.assignedStaff||[])){const row=ensurePerson(person,shift?.branchName||'');row.changeCount++;if(attentionLevel(c)==='RED')row.redCount++;if(attentionStatus(c)==='OPEN')row.openCount++}}
+  // A shift participant is not necessarily the performer of each activity.
+  // Legacy records without explicit attribution stay unassigned.
+  for(const c of changes){
+    if(!c.performedByStaffId)continue;
+    const shift=shifts.find(s=>String(s.id)===String(c.shiftId));
+    const person=directory.find(p=>String(p.id)===String(c.performedByStaffId))||(shift?.assignedStaff||[]).find(p=>String(p.id)===String(c.performedByStaffId))||{id:c.performedByStaffId,fullName:c.performedByStaffName||'Chưa xác định'};
+    const row=ensurePerson(person,shift?.branchName||'');row.changeCount++;
+    if(attentionLevel(c)==='RED')row.redCount++;if(attentionStatus(c)==='OPEN')row.openCount++;
+  }
   const staffDetails=[...byId.values()].filter(x=>x.shiftCount||x.changeCount).sort((a,b)=>String(a.fullName).localeCompare(String(b.fullName),'vi'));
-  res.json({success:true,data:{from:range.from,to:range.to,branchId,calendar,staffDetails,activityChanges:changes.length}});
+  res.json({success:true,data:{from:range.from,to:range.to,branchId,calendar,staffDetails,activityChanges:changes.length,unattributedChanges:changes.filter(x=>!x.performedByStaffId).length,activityBasis:'performedByStaffId'}});
 });
 router.get('/reports/resident/:residentId',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const range=reportRange(req.query),residentId=String(req.params.residentId),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');

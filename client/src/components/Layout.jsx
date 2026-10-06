@@ -6,11 +6,13 @@ import AlertBell from './AlertBell';
 import AIChat from './AIChat';
 
 const MENU_ITEMS=[
-  {to:'/',label:'Tổng quan',permission:'DASHBOARD.VIEW',icon:'⌂',end:true},
+  {to:'/',label:'Tổng quan vận hành',permission:'DASHBOARD.VIEW',icon:'⌂',end:true},
   {to:'/shifts/current',label:'Ca chăm sóc',permission:'SHIFT.VIEW',icon:'◷'},
   // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
-  {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
+  {to:'/reports',label:'Báo cáo vận hành',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
+  {to:'/cskh',label:'Theo dõi & CSKH',permission:'CSKH.VIEW',icon:'◎'},
+  {to:'/reports/legacy',label:'Biến động dữ liệu cũ',permission:'AUDIT.VIEW',icon:'▤'},
   // c
   {to:'/users',label:'Tài khoản & nhân sự',permission:'USER.VIEW',icon:'♟'},
   // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
@@ -19,7 +21,7 @@ const MENU_ITEMS=[
 export default function Layout(){
   const {user,logout,can}=useAuth();
   const [collapsed,setCollapsed]=useState(()=>{try{return window.matchMedia?.('(max-width: 900px)')?.matches||localStorage.getItem('shiftcare_sidebar_collapsed')==='1'}catch{return false}});
-  const visibleMenus=useMemo(()=>MENU_ITEMS.filter(item=>{try{return can(item.permission)}catch{return true}}),[can]);
+  const visibleMenus=useMemo(()=>MENU_ITEMS.filter(item=>{try{return can(item.permission)&&(!(user?.role!=='ADMIN'&&user?.userScopes?.length)||['/','/shifts/current','/reports','/reports/staff','/cskh'].includes(item.to))}catch{return true}}),[can,user?.userScopes]);
   useEffect(()=>{try{localStorage.setItem('shiftcare_sidebar_collapsed',collapsed?'1':'0')}catch{}},[collapsed]);
   useEffect(()=>{
     const media=window.matchMedia?.('(max-width: 900px)');
@@ -36,7 +38,7 @@ export default function Layout(){
       <button type="button" className="sidebar-edge-toggle" onClick={()=>setCollapsed(v=>!v)} title={collapsed?'Mở rộng menu':'Thu gọn menu'} aria-label={collapsed?'Mở rộng menu':'Thu gọn menu'}>{collapsed?'›':'‹'}</button>
       <div className="sidebar-brand">
         <img src="/logo-binhmy.jpg" alt="Bình Mỹ Care" className="sidebar-logo"/>
-        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v10.11</span></div>}
+        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v11 · Khu / tầng</span></div>}
       </div>
       <nav className="sidebar-nav">
         {visibleMenus.map(item=><NavLink key={item.to} to={item.to} end={item.end} title={collapsed?item.label:undefined} onClick={closeMobileMenu} className={({isActive})=>isActive?'active':''}>
@@ -55,9 +57,9 @@ export default function Layout(){
       </div>
     </aside>
     <main className="app-main">
-      <header className="app-topbar"><button type="button" className="mobile-menu-toggle" onClick={()=>setCollapsed(v=>!v)}>☰</button><div className="app-topbar-right"><PWAStatus/><AlertBell/></div></header>
+      <header className="app-topbar"><button type="button" className="mobile-menu-toggle" onClick={()=>setCollapsed(v=>!v)}>☰</button><div className="app-topbar-right"><PWAStatus/>{can('DASHBOARD.VIEW')&&<AlertBell/>}</div></header>
       <div className="app-content-scroll"><Outlet/></div>
     </main>
-    <AIChat/>
+    {user?.role!=='CSKH'&&!user?.userScopes?.length&&<AIChat/>}
   </div>;
 }
