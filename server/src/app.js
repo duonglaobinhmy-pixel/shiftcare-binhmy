@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './config/env.js';
 
 import express from 'express';
 import cors from 'cors';
@@ -151,8 +151,8 @@ async function loadApplicationModules() {
       try {
         const database = await databaseHealth();
 
-        return res.status(database.ok && database.middlewareSchemaReady ? 200 : 503).json({
-          ok: database.ok && database.middlewareSchemaReady,
+        return res.status(database.ok && (database.mode === 'JSON_FILE_DEMO' || database.middlewareSchemaReady) ? 200 : 503).json({
+          ok: database.ok && (database.mode === 'JSON_FILE_DEMO' || database.middlewareSchemaReady),
           database,
           time: new Date().toISOString()
         });
@@ -167,9 +167,6 @@ async function loadApplicationModules() {
         });
       }
     });
-
-    const { default: operationsRoutes } = await import('./routes/operations.routes.js');
-    app.use('/api', operationsRoutes);
 
     // Register the authenticated catch-all router after the public DB health route.
     app.use('/api', coreRoutes);

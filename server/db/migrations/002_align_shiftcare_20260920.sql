@@ -3,7 +3,8 @@ BEGIN;
 -- Source of truth for account roles.
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check
-CHECK (role IN ('ADMIN','BRANCH_DIRECTOR','CARE_SHARED'));
+-- Preserve existing prototype CSKH accounts; the restored app grants them no permissions.
+CHECK (role IN ('ADMIN','BRANCH_DIRECTOR','CARE_SHARED','CSKH'));
 
 -- Old columns from earlier prototypes are no longer used.
 ALTER TABLE users DROP COLUMN IF EXISTS full_access;

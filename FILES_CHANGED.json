@@ -1,0 +1,44 @@
+{
+  "base": "Latest user uploaded project",
+  "changed": [
+    "client/public/sw.js",
+    "client/src/pages/Reports.jsx",
+    "client/src/pages/ShiftDetail.jsx",
+    "server/.env.example",
+    "server/db/migrations/002_align_shiftcare_20260920.sql",
+    "server/scripts/db-migrate-middleware.js",
+    "server/scripts/import-json-to-middleware.js",
+    "server/scripts/migrate-app-state-to-middleware.js",
+    "server/src/app.js",
+    "server/src/middleware/auth.js",
+    "server/src/routes/core.routes.js",
+    "server/src/services/db.service.js",
+    "server/src/services/fast-query.service.js",
+    "server/src/services/store.service.js",
+    "server/src/utils/files.js"
+  ],
+  "added": [
+    "scripts/cleanup-previous-patch.mjs",
+    "server/db/migrations/006_cleanup_previous_operations.sql",
+    "server/src/config/env.js",
+    "server/src/services/staff-report.service.js",
+    "server/test/reports.test.js"
+  ],
+  "restored_originals": [
+    "client/src/components/Layout.jsx",
+    "client/src/context/AuthContext.jsx",
+    "client/src/main.jsx",
+    "client/src/pages/Users.jsx",
+    "package.json",
+    "server/package.json",
+    "server/src/config/permissions.js",
+    "server/src/routes/bcare.routes.js",
+    "server/src/routes/users.routes.js"
+  ],
+  "removed_from_clean_project": [
+    "README 2.md",
+    "server/src/routes/fast-query.service.js",
+    "server/src/routes/store.service.js"
+  ],
+  "patch_full_file_count": 29
+}

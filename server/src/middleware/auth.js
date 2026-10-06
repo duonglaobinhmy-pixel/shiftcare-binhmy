@@ -11,7 +11,6 @@ function safeIdentity(user) {
     fullName: user.fullName,
     role: user.role,
     permissions: normalizePermissions(user),
-    userScopes: Array.isArray(user.userScopes) ? user.userScopes : [],
     branchId: user.branchId || null,
     branchName: user.branchName || null,
     areaId: user.areaId || null,
@@ -33,11 +32,11 @@ export async function authenticate(req, res, next) {
     const users = await getUsers();
     const current = users.find(x => String(x.id) === String(decoded.sub) && x.active !== false);
     if (!current) return res.status(401).json({ success: false, message: 'Tài khoản đã bị khóa hoặc không còn tồn tại' });
+    if (current.role !== 'ADMIN' && !current.branchId) return res.status(403).json({ success: false, message: 'Tài khoản chưa được gán cơ sở.' });
     req.user = { ...decoded, ...safeIdentity(current) };
-    const legacyPath=/^\/api\/(ai|media|medication|bcare)(?:\/|$)/.test(req.originalUrl);
-    if(req.user.role!=='ADMIN'&&(req.user.role==='CSKH'||req.user.userScopes.length)&&legacyPath&&!req.originalUrl.startsWith('/api/bcare/branches'))return res.status(403).json({success:false,message:'Tài khoản có phạm vi riêng dùng API vận hành V2.'});
     next();
-  } catch {
+  } catch (error) {
+    if (!['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name)) return next(error);
     return res.status(401).json({ success: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn' });
   }
 }

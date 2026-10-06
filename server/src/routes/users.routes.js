@@ -13,7 +13,6 @@ import { promisify } from 'node:util';
 
 const router = Router();
 router.use(authenticate, allowRoles('ADMIN', 'BRANCH_DIRECTOR'));
-router.use((req,res,next)=>req.user.role!=='ADMIN'&&req.user.userScopes?.length?res.status(403).json({success:false,message:'Tài khoản bị giới hạn khu/tầng không quản trị nhân sự toàn cơ sở.'}):next());
 const execFileAsync = promisify(execFile);
 
 function publicUser(u) {
@@ -29,7 +28,7 @@ function validEmployeeCode(v) {
   return /^[A-Za-z0-9._-]{1,30}$/.test(String(v || '').trim());
 }
 
-const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'CARE_SHARED','CSKH']);
+const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'CARE_SHARED']);
 
 function isBranchDirector(user) {
   return user.role === 'BRANCH_DIRECTOR';
@@ -169,19 +168,6 @@ function resolveAccountBranch(role, body, current = null) {
   return { branchId, branchName: branch.name };
 }
 
-function validateUserScopes(value) {
-  if(value===undefined)return undefined;
-  if(!Array.isArray(value)||value.length>100)throw new Error('Phạm vi tài khoản phải là danh sách tối đa 100 dòng.');
-  return value.map(g=>{
-    if(!g||!CARE_BRANCH_MAP[g.branchId])throw new Error('Cơ sở trong phạm vi không hợp lệ.');
-    const row={branchId:String(g.branchId)};
-    for(const key of ['zoneId','floorId','residentId'])if(g[key])row[key]=String(g[key]);
-    for(const key of ['validFrom','validTo'])if(g[key]){const date=new Date(g[key]);if(Number.isNaN(date.getTime()))throw new Error('Thời hạn cấp quyền không hợp lệ.');row[key]=date.toISOString()}
-    if(row.validFrom&&row.validTo&&row.validFrom>=row.validTo)throw new Error('Khoảng cấp quyền không hợp lệ.');
-    return row;
-  });
-}
-
 function duplicateBranchRole(users, role, branchId, excludeId = null) {
   if (!['BRANCH_DIRECTOR', 'CARE_SHARED'].includes(role)) return false;
   return users.some(u => u.id !== excludeId && u.active !== false && u.role === role && String(u.branchId || '') === String(branchId || ''));
@@ -204,7 +190,7 @@ router.post('/', allowPermission('USER.CREATE'), async (req, res) => {
     const permissions = role === 'ADMIN' ? [] : sanitizePermissions(body.permissions, role);
     const user = {
       id: uuid(), username, password, employeeCode: null, fullName, role,
-      branchId, branchName, userScopes: validateUserScopes(body.userScopes)||[], areaId: null, areaName: '', permissions, active: true,
+      branchId, branchName, areaId: null, areaName: '', permissions, active: true,
     };
     users.push(user);
     await saveUsers(users);
@@ -234,7 +220,6 @@ router.patch('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
     }
     const next = {
       ...current,
-      userScopes: validateUserScopes(body.userScopes)??current.userScopes??[],
       username,
       fullName,
       role,

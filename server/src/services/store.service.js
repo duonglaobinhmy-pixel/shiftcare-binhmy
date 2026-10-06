@@ -68,10 +68,10 @@ export async function saveUsers(users) {
   });
 }
 
-export async function getStore() {
+export async function getStore(transaction = null) {
   if (!await middlewareSchemaReady()) return readJson('store.json', clone(DEFAULT_STORE));
-  if(storeCache.value&&Date.now()<storeCache.expiresAt)return clone(storeCache.value);
-  const db=getPool();
+  if(!transaction&&storeCache.value&&Date.now()<storeCache.expiresAt)return clone(storeCache.value);
+  const db=transaction || getPool();
   const [branches,residents,staff,shifts,shiftStaff,shiftResidents,care,vitals,images,toilets,instructions,handovers,signs,audits,users,careEvents,careCategories]=await Promise.all([
     db.query(`SELECT * FROM bcare_branches_ref`),db.query(`SELECT * FROM bcare_residents_ref`),db.query(`SELECT * FROM staff_members`),
     db.query(`SELECT * FROM shifts`),db.query(`SELECT * FROM shift_staff`),db.query(`SELECT * FROM shift_residents`),
@@ -96,7 +96,7 @@ export async function getStore() {
     const v=vitMap.get(x.id);
     const imgs=await Promise.all((imgMap.get(x.id)||[]).map(async i=>{
       let signedUrl=null;
-      if(i.object_key){
+      if(i.object_key && !transaction){
         try{signedUrl=await getSignedWoundImageUrl(i.object_key,900)}catch(error){console.error(`[MEDIA] signed URL failed ${i.object_key}:`,error?.message||error)}
       }
       return mergeExtra(i.legacy_extra,{
@@ -112,11 +112,22 @@ export async function getStore() {
   const handoverRows=handovers.rows.map(x=>mergeExtra(x.legacy_extra,{id:x.id,shiftId:x.shift_id,branchId:x.branch_id,version:x.version,summaryNote:x.summary_note,confirmedBy:x.confirmed_by,confirmedByName:x.confirmed_by_name_cache,confirmedAt:iso(x.confirmed_at),receivedBy:x.received_by,receivedByName:x.received_by_name_cache,receivedAt:iso(x.received_at),participants:(sigMap.get(x.id)||[]).map(s=>({userId:s.staff_id,username:s.username_cache,employeeCode:s.employee_code_cache,fullName:s.full_name_cache,acknowledged:s.acknowledged,acknowledgedAt:iso(s.acknowledged_at),recordedBy:s.recorded_by}))}));
   const auditLogs=audits.rows.map(x=>({id:x.id,actorId:x.actor_id,actorName:x.actor_name,role:x.role,branchId:x.branch_id,action:x.action,objectType:x.object_type,objectId:x.object_id,detail:x.detail||{},occurredAt:iso(x.occurred_at)}));
   const result={shifts:shiftRows,shiftResidents:roster,changeLogs,toiletingLogs,handovers:handoverRows,auditLogs,medicationOrders,staffMembers};
-  storeCache={value:clone(result),expiresAt:Date.now()+1500};
+  if(!transaction) storeCache={value:clone(result),expiresAt:Date.now()+1500};
   return result;
 }
 
-async function persistStore(db, store) {
+async function persistStore(db, current, before) {
+  // Persist only rows changed by this mutation. Never clear unrelated rosters.
+  const store = {};
+  for (const key of Object.keys(DEFAULT_STORE)) {
+    const previous = new Map((before[key] || []).map(row => [String(row.id), JSON.stringify(row)]));
+    store[key] = (current[key] || []).filter(row => previous.get(String(row.id)) !== JSON.stringify(row));
+  }
+  for (const [key, table] of [['shiftResidents', 'shift_residents'], ['shifts', 'shifts']]) {
+    const ids = new Set((current[key] || []).map(row => String(row.id)));
+    const removed = (before[key] || []).filter(row => !ids.has(String(row.id))).map(row => String(row.id));
+    if (removed.length) await db.query(`DELETE FROM ${table} WHERE id=ANY($1::text[])`, [removed]);
+  }
   const objectsToDelete = new Set();
   for(const x of store.staffMembers||[]){await ensureBranch(db,x.branchId,x.branchName);await db.query(`
     INSERT INTO staff_members(id,employee_code,full_name,branch_id,branch_name_cache,area_id_cache,area_name_cache,user_id,role_cache,active,deleted,created_by,created_at,updated_by,updated_at,deleted_by,deleted_at,delete_reason,legacy_extra)
@@ -128,16 +139,13 @@ async function persistStore(db, store) {
   for(const x of store.toiletingLogs||[]) await ensureResident(db,x);
   for(const x of store.medicationOrders||[]) await ensureResident(db,x);
 
-  const shiftIds=[];
-  for(const x of store.shifts||[]){shiftIds.push(String(x.id));await ensureBranch(db,x.branchId,x.branchName);await db.query(`
+  for(const x of store.shifts||[]){await ensureBranch(db,x.branchId,x.branchName);await db.query(`
     INSERT INTO shifts(id,shift_date,shift_type,status,branch_id,branch_name_cache,area_id_cache,area_name_cache,room_id_cache,auto_created,created_by,created_at,staff_updated_by,staff_updated_at,locked_by,locked_at,legacy_extra)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12::timestamptz,NOW()),$13,$14,$15,$16,$17::jsonb)
     ON CONFLICT(id) DO UPDATE SET shift_date=EXCLUDED.shift_date,shift_type=EXCLUDED.shift_type,status=EXCLUDED.status,branch_id=EXCLUDED.branch_id,branch_name_cache=EXCLUDED.branch_name_cache,area_id_cache=EXCLUDED.area_id_cache,area_name_cache=EXCLUDED.area_name_cache,room_id_cache=EXCLUDED.room_id_cache,auto_created=EXCLUDED.auto_created,staff_updated_by=EXCLUDED.staff_updated_by,staff_updated_at=EXCLUDED.staff_updated_at,locked_by=EXCLUDED.locked_by,locked_at=EXCLUDED.locked_at,legacy_extra=EXCLUDED.legacy_extra
   `,[x.id,dateOnly(x.shiftDate),x.shiftType,x.status||'OPEN',x.branchId,x.branchName||'',x.areaId||null,x.areaName||'',x.roomId||null,!!x.autoCreated,x.createdBy||null,x.createdAt||null,x.staffUpdatedBy||null,x.staffUpdatedAt||null,x.lockedBy||null,x.lockedAt||null,JSON.stringify(strip(x,['assignedStaff','assignedStaffIds','assignedStaffNames']))]);await db.query(`DELETE FROM shift_staff WHERE shift_id=$1`,[x.id]);for(const p of x.assignedStaff||[]){if(!p?.id)continue;await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[x.id,p.id,p.id===(x.primaryRecorderId||x.assignedStaffId)])}}
-  if(shiftIds.length) await db.query(`DELETE FROM shifts WHERE NOT (id=ANY($1::text[]))`,[shiftIds]); else await db.query(`DELETE FROM shifts`);
 
-  await db.query(`DELETE FROM shift_residents`);
-  for(const x of store.shiftResidents||[]){await db.query(`INSERT INTO shift_residents(id,shift_id,bcare_resident_id,code_snapshot,full_name_snapshot,branch_id,branch_name_snapshot,area_id_snapshot,area_name_snapshot,room_id_snapshot,room_name_snapshot,bed_name_snapshot,image_snapshot,derived_status,legacy_extra) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)`,[x.id,x.shiftId,x.residentId,x.code||'',x.fullName||'',x.branchId,x.branchName||'',x.areaId||null,x.areaName||'',x.roomId||null,x.roomName||'',x.bedName||'',x.image||'',x.derivedStatus||'NO_RECORDED_CHANGE',JSON.stringify(strip(x))]);}
+  for(const x of store.shiftResidents||[]){await db.query(`INSERT INTO shift_residents(id,shift_id,bcare_resident_id,code_snapshot,full_name_snapshot,branch_id,branch_name_snapshot,area_id_snapshot,area_name_snapshot,room_id_snapshot,room_name_snapshot,bed_name_snapshot,image_snapshot,derived_status,legacy_extra) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb) ON CONFLICT(id) DO UPDATE SET code_snapshot=EXCLUDED.code_snapshot,full_name_snapshot=EXCLUDED.full_name_snapshot,branch_name_snapshot=EXCLUDED.branch_name_snapshot,area_id_snapshot=EXCLUDED.area_id_snapshot,area_name_snapshot=EXCLUDED.area_name_snapshot,room_id_snapshot=EXCLUDED.room_id_snapshot,room_name_snapshot=EXCLUDED.room_name_snapshot,bed_name_snapshot=EXCLUDED.bed_name_snapshot,image_snapshot=EXCLUDED.image_snapshot,derived_status=EXCLUDED.derived_status,legacy_extra=EXCLUDED.legacy_extra`,[x.id,x.shiftId,x.residentId,x.code||'',x.fullName||'',x.branchId,x.branchName||'',x.areaId||null,x.areaName||'',x.roomId||null,x.roomName||'',x.bedName||'',x.image||'',x.derivedStatus||'NO_RECORDED_CHANGE',JSON.stringify(strip(x))]);}
 
   for(const x of store.changeLogs||[]){await db.query(`
     INSERT INTO care_records(id,client_request_id,shift_id,bcare_resident_id,resident_name_snapshot,category,event_type,priority,occurred_at,content,intervention,notified_to,requires_handover,follow_up,branch_id,branch_name_snapshot,area_id_snapshot,area_name_snapshot,room_name_snapshot,bed_name_snapshot,image_snapshot,created_by,created_by_name_cache,created_at,updated_by,updated_by_name_cache,updated_at,deleted,deleted_by,deleted_at,delete_reason,attention_level,attention_status,attention_resolved_at,attention_resolved_by,legacy_extra,resident_status)
@@ -209,9 +217,10 @@ export async function updateStore(mutator) {
   }
   const operation=queue.then(async()=>{
     const committed=await withTransaction(async db=>{
-      const store=await getStore();
+      const store=await getStore(db);
+      const before=clone(store);
       const result=await mutator(store);
-      const objectsToDelete=await persistStore(db,store);
+      const objectsToDelete=await persistStore(db,store,before);
       return {result,objectsToDelete};
     });
     for(const objectKey of committed.objectsToDelete||[]){

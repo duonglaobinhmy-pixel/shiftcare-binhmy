@@ -1,6 +1,6 @@
-import 'dotenv/config';
+import '../src/config/env.js';
 import { getPool } from '../src/services/db.service.js';
-import { updateStore, saveUsers } from '../src/services/store.service.js';
+import { updateStore, saveUsers, getUsers } from '../src/services/store.service.js';
 
 if (!process.env.DATABASE_URL) {
   console.error('Thiếu DATABASE_URL trong server/.env');
@@ -12,7 +12,7 @@ if(!table.rows[0]?.t){console.log('Không có app_state; bỏ qua migration dữ
 const rows=await db.query(`SELECT state_key,state_value FROM app_state WHERE state_key IN ('store','users')`);
 const map=new Map(rows.rows.map(x=>[x.state_key,x.state_value]));
 const store=map.get('store'); const users=map.get('users');
-if(Array.isArray(users)) await saveUsers(users);
-if(store){await updateStore(target=>{for(const key of Object.keys(target)) target[key]=Array.isArray(store[key])?store[key]:target[key];});}
+if(Array.isArray(users)) await saveUsers([...new Map([...(await getUsers()),...users].map(row=>[String(row.id),row])).values()]);
+if(store){await updateStore(target=>{for(const key of Object.keys(target)) target[key]=Array.isArray(store[key])?[...new Map([...target[key],...store[key]].map(row=>[String(row.id),row])).values()]:target[key];});}
 console.log(`Đã migrate app_state -> middleware relational. users=${Array.isArray(users)?users.length:0}, shifts=${store?.shifts?.length||0}, changes=${store?.changeLogs?.length||0}`);
 await db.end();

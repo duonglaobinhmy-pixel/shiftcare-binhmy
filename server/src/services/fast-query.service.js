@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
-import { canAccessShift } from '../config/shift-access.js';
 import { getPool, middlewareSchemaReady, withTransaction } from './db.service.js';
+import { invalidateStoreCache } from './store.service.js';
 import { getSignedWoundImageUrl } from './media-storage.service.js';
 
 const iso = value => value ? new Date(value).toISOString() : null;
@@ -13,7 +13,7 @@ const dateOnly = value => {
 };
 
 async function ready(){
-  try{return await middlewareSchemaReady()}catch{return false}
+  return middlewareSchemaReady();
 }
 
 function mapStaffJson(raw){
@@ -35,7 +35,10 @@ function mapShiftRow(x){
   };
 }
 
-function scopeShift(user,shift){ return canAccessShift(user,shift); }
+function scopeShift(user,shift){
+  if(user.role==='ADMIN') return true;
+  return Boolean(user.branchId) && String(shift.branchId)===String(user.branchId);
+}
 
 export async function getStaffOptionsFast(branchId){
   if(!await ready())return null;
@@ -79,7 +82,7 @@ export async function getShiftDetailFast(user,id){
   const db=getPool();
   const [rr,cr,tr]=await Promise.all([
     db.query(`SELECT * FROM shift_residents WHERE shift_id=$1 ORDER BY full_name_snapshot`,[id]),
-    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE c.shift_id=$1 AND c.deleted=FALSE ORDER BY c.occurred_at DESC`,[id]),
+    db.query(`SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE c.shift_id=$1 AND c.deleted=FALSE ORDER BY c.occurred_at DESC`,[id]),
     db.query(`SELECT * FROM toileting_logs WHERE shift_id=$1 AND deleted=FALSE ORDER BY created_at DESC`,[id])
   ]);
   const images=cr.rows.length?await db.query(`SELECT * FROM care_record_images WHERE care_record_id=ANY($1::text[]) ORDER BY created_at`,[cr.rows.map(x=>x.id)]):{rows:[]};
@@ -99,11 +102,11 @@ function mapCareRow(x){
   const vitals=(x.pulse!=null||x.temperature!=null||x.bp_sys!=null||x.bp_dia!=null||x.spo2!=null||x.respiratory_rate!=null||x.blood_glucose!=null||x.insulin_dose_units!=null||x.alert_level)?{
     pulse:x.pulse==null?null:Number(x.pulse),temperature:x.temperature==null?null:Number(x.temperature),bpSys:x.bp_sys==null?null:Number(x.bp_sys),bpDia:x.bp_dia==null?null:Number(x.bp_dia),spo2:x.spo2==null?null:Number(x.spo2),respiratoryRate:x.respiratory_rate==null?null:Number(x.respiratory_rate),bloodGlucose:x.blood_glucose==null?null:Number(x.blood_glucose),insulinDoseUnits:x.insulin_dose_units==null?null:Number(x.insulin_dose_units),concern:!!x.concern,alertLevel:x.alert_level||'NORMAL',alerts:x.alerts||[],urgent:x.urgent||null
   }:null;
-  return {id:x.id,clientRequestId:x.client_request_id||'',performedByStaffId:x.legacy_extra?.performedByStaffId||null,performedByStaffName:x.legacy_extra?.performedByStaffName||'',enteredByUserId:x.created_by,coPerformerIds:x.legacy_extra?.coPerformerIds||[],shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
+  return {id:x.id,performerStaffId:x.legacy_extra?.performerStaffId||null,performerStaffName:x.legacy_extra?.performerStaffName||'',clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:x.category_codes?.length?x.category_codes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:x.legacy_extra?.eventCodes?.length?x.legacy_extra.eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
 }
 function mapToiletRow(x){return{id:x.id,clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',bowelStatus:x.bowel_status,urineStatus:x.urine_status,urineDetail:x.urine_detail||'',note:x.note||'',branchId:x.branch_id,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedAt:iso(x.updated_at)}}
 
-export async function getReportBundleFast(user,{from,to,branchId=''}){
+export async function getReportBundleFast(user,{from,to,branchId='',residentId=''}){
   if(!await ready())return null;
   const effectiveBranch=user.role==='ADMIN'?String(branchId||''):String(user.branchId||'');
   const db=getPool();
@@ -117,8 +120,9 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
   let toiletWhere=`t.deleted=FALSE AND t.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND t.created_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
   if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
 
+  if(residentId){careParams.push(String(residentId));careWhere+=` AND c.bcare_resident_id=$${careParams.length}`;toiletParams.push(String(residentId));toiletWhere+=` AND t.bcare_resident_id=$${toiletParams.length}`}
   const [cr,tr]=await Promise.all([
-    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
+    db.query(`SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
     db.query(`SELECT t.* FROM toileting_logs t WHERE ${toiletWhere} ORDER BY t.created_at DESC`,toiletParams)
   ]);
 
@@ -157,7 +161,7 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
   let handoverRows=[];
   if(shiftIds.length){
     const [rr,hr]=await Promise.all([
-      db.query(`SELECT * FROM shift_residents WHERE shift_id=ANY($1::text[])`,[shiftIds]),
+      db.query(`SELECT * FROM shift_residents WHERE shift_id=ANY($1::text[]) ${residentId?'AND bcare_resident_id=$2':''}`,residentId?[shiftIds,String(residentId)]:[shiftIds]),
       db.query(`SELECT * FROM handovers WHERE shift_id=ANY($1::text[])`,[shiftIds])
     ]);
     residentRows=rr.rows;
@@ -185,7 +189,8 @@ export async function getReportBundleFast(user,{from,to,branchId=''}){
   const outstandingParams=[];
   let outstandingWhere=`c.deleted=FALSE AND c.attention_level IN ('RED','YELLOW') AND COALESCE(c.attention_status,'OPEN')<>'RESOLVED'`;
   if(effectiveBranch){outstandingParams.push(effectiveBranch);outstandingWhere+=` AND c.branch_id=$${outstandingParams.length}`}
-  const or=await db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${outstandingWhere} ORDER BY CASE c.attention_level WHEN 'RED' THEN 0 ELSE 1 END,c.occurred_at DESC LIMIT 500`,outstandingParams);
+  if(residentId){outstandingParams.push(String(residentId));outstandingWhere+=` AND c.bcare_resident_id=$${outstandingParams.length}`}
+  const or=await db.query(`SELECT DISTINCT ON (c.branch_id,c.bcare_resident_id) c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${outstandingWhere} ORDER BY c.branch_id,c.bcare_resident_id,CASE c.attention_level WHEN 'RED' THEN 0 ELSE 1 END,c.occurred_at DESC`,outstandingParams);
 
   return {
     shifts,
@@ -217,7 +222,7 @@ export async function getStaffReportBundleFast(user,{from,to,branchId=''}){
   if(effectiveBranch){toiletParams.push(effectiveBranch);toiletWhere+=` AND t.branch_id=$${toiletParams.length}`}
 
   const [cr,tr,dir]=await Promise.all([
-    db.query(`SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
+    db.query(`SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units FROM care_records c LEFT JOIN care_record_vitals v ON v.care_record_id=c.id WHERE ${careWhere} ORDER BY c.occurred_at DESC`,careParams),
     db.query(`SELECT t.* FROM toileting_logs t WHERE ${toiletWhere} ORDER BY t.created_at DESC`,toiletParams),
     db.query(`SELECT sm.id,sm.user_id,u.username,sm.employee_code,sm.full_name,sm.branch_id,br.name_cache branch_name,COALESCE(u.role,sm.role_cache,'STAFF') role FROM staff_members sm LEFT JOIN users u ON u.id=sm.user_id LEFT JOIN bcare_branches_ref br ON br.bcare_branch_id=sm.branch_id WHERE sm.deleted=FALSE AND sm.active IS DISTINCT FROM FALSE ${effectiveBranch?'AND sm.branch_id=$1':''} ORDER BY sm.full_name`,effectiveBranch?[effectiveBranch]:[])
   ]);
@@ -276,7 +281,7 @@ export async function getStaffCalendarFast(user,{from,to,branchId='',staffId=''}
   const staffFilter=String(staffId||'');
 
   const shiftParams=[from,to];
-  let shiftWhere=`s.shift_date BETWEEN $1::date AND $2::date`;
+  let shiftWhere=`sd.date BETWEEN $1::date AND $2::date`;
   if(effectiveBranch){shiftParams.push(effectiveBranch);shiftWhere+=` AND s.branch_id=$${shiftParams.length}`}
   if(staffFilter){shiftParams.push(staffFilter);shiftWhere+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=s.id AND sx.staff_id=$${shiftParams.length})`}
 
@@ -296,17 +301,29 @@ export async function getStaffCalendarFast(user,{from,to,branchId='',staffId=''}
 
   const [sr,cr,tr,dr]=await Promise.all([
     db.query(`
-      SELECT s.shift_date::text AS date,
+      WITH source_days AS (
+        SELECT id AS shift_id, shift_date AS date FROM shifts
+        WHERE shift_date BETWEEN $1::date AND $2::date
+        UNION
+        SELECT shift_id, (occurred_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date FROM care_records
+        WHERE deleted=FALSE AND occurred_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+          AND occurred_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+        UNION
+        SELECT shift_id, (created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date FROM toileting_logs
+        WHERE deleted=FALSE AND created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
+          AND created_at < ((($2::date + 1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')
+      )
+      SELECT sd.date::text AS date,
              COUNT(DISTINCT s.id)::int AS shift_count,
              COUNT(DISTINCT ss.staff_id)::int AS staff_count,
              COUNT(DISTINCT s.id) FILTER (WHERE h.confirmed_at IS NOT NULL)::int AS handover_done,
              COUNT(DISTINCT s.id) FILTER (WHERE h.confirmed_at IS NULL)::int AS handover_pending
-      FROM shifts s
+      FROM source_days sd JOIN shifts s ON s.id=sd.shift_id
       LEFT JOIN shift_staff ss ON ss.shift_id=s.id
       LEFT JOIN handovers h ON h.shift_id=s.id
       WHERE ${shiftWhere}
-      GROUP BY s.shift_date
-      ORDER BY s.shift_date
+      GROUP BY sd.date
+      ORDER BY sd.date
     `,shiftParams),
     db.query(`
       SELECT ((c.occurred_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::text AS date,
@@ -348,15 +365,18 @@ export async function getStaffCalendarFast(user,{from,to,branchId='',staffId=''}
     toiletingCount:a.toiletingCount+x.toiletingCount,
     redCount:a.redCount+x.redCount,
     yellowCount:a.yellowCount+x.yellowCount,
+    openCount:a.openCount+x.openCount,
     handoverDone:a.handoverDone+x.handoverDone,
     handoverPending:a.handoverPending+x.handoverPending,
     staffCount:0
-  }),{shiftCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,handoverDone:0,handoverPending:0,staffCount:0});
+  }),{shiftCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,openCount:0,handoverDone:0,handoverPending:0,staffCount:0});
 
   const uniqueStaffParams=[from,to];
-  let uniqueStaffWhere=`s.shift_date BETWEEN $1::date AND $2::date`;
+  let uniqueStaffWhere=`(s.shift_date BETWEEN $1::date AND $2::date
+    OR EXISTS(SELECT 1 FROM care_records c WHERE c.shift_id=s.id AND c.deleted=FALSE AND c.occurred_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND c.occurred_at < ((($2::date+1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh'))
+    OR EXISTS(SELECT 1 FROM toileting_logs t WHERE t.shift_id=s.id AND t.deleted=FALSE AND t.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND t.created_at < ((($2::date+1)::timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')))`;
   if(effectiveBranch){uniqueStaffParams.push(effectiveBranch);uniqueStaffWhere+=` AND s.branch_id=$${uniqueStaffParams.length}`}
-  if(staffFilter){uniqueStaffParams.push(staffFilter);uniqueStaffWhere+=` AND ss.staff_id=$${uniqueStaffParams.length}`}
+  if(staffFilter){uniqueStaffParams.push(staffFilter);uniqueStaffWhere+=` AND EXISTS(SELECT 1 FROM shift_staff sx WHERE sx.shift_id=s.id AND sx.staff_id=$${uniqueStaffParams.length})`}
   const ur=await db.query(`SELECT COUNT(DISTINCT ss.staff_id)::int n FROM shifts s JOIN shift_staff ss ON ss.shift_id=s.id WHERE ${uniqueStaffWhere}`,uniqueStaffParams);
   summary.staffCount=Number(ur.rows[0]?.n||0);
 
@@ -418,11 +438,11 @@ export async function getStaffDayDetailFast(user,{date,branchId='',staffId=''}){
 
   const shifts=sr.rows.map(mapShiftRow).filter(x=>scopeShift(user,x));
   const shiftIds=shifts.map(x=>x.id);
-  if(!shiftIds.length)return {date,branchId:effectiveBranch,staffId:staffFilter,summary:{shiftCount:0,staffCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,handoverDone:0},shifts:[]};
+  if(!shiftIds.length)return {date,branchId:effectiveBranch,staffId:staffFilter,summary:{shiftCount:0,staffCount:0,changeCount:0,toiletingCount:0,redCount:0,yellowCount:0,openCount:0,handoverDone:0,handoverPending:0},shifts:[]};
 
   const [cr,tr]=await Promise.all([
     db.query(`
-      SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units,
+      SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units,
              (SELECT COUNT(*)::int FROM care_record_images i WHERE i.care_record_id=c.id) image_count
       FROM care_records c
       LEFT JOIN care_record_vitals v ON v.care_record_id=c.id
@@ -469,7 +489,9 @@ export async function getStaffDayDetailFast(user,{date,branchId='',staffId=''}){
       toiletingCount:toilets.length,
       redCount:changes.filter(x=>x.attentionLevel==='RED').length,
       yellowCount:changes.filter(x=>x.attentionLevel==='YELLOW').length,
-      handoverDone:resultShifts.filter(x=>x.handover?.confirmedAt).length
+      openCount:changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').length,
+      handoverDone:resultShifts.filter(x=>x.handover?.confirmedAt).length,
+      handoverPending:resultShifts.filter(x=>!x.handover?.confirmedAt).length
     },
     shifts:resultShifts
   };
@@ -492,7 +514,7 @@ export async function getResidentVitalsReportFast(user,{residentId,from,to,branc
   )`;
 
   const rangeSql=`
-    SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
+    SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
            v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units
     FROM care_records c
     JOIN care_record_vitals v ON v.care_record_id=c.id
@@ -508,7 +530,7 @@ export async function getResidentVitalsReportFast(user,{residentId,from,to,branc
   if(effectiveBranch){latestParams.push(effectiveBranch);latestScope+=` AND c.branch_id=$${latestParams.length}`}
 
   const latestSql=`
-    SELECT c.*,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
+    SELECT c.*,(SELECT array_agg(category_code ORDER BY category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,
            v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units
     FROM care_records c
     JOIN care_record_vitals v ON v.care_record_id=c.id
@@ -528,22 +550,27 @@ export async function getResidentVitalsReportFast(user,{residentId,from,to,branc
 export async function createShiftFast(user,body,{branchName='',assignedStaff=[],primaryRecorder}={}){
   if(!await ready())return null;
   const id=uuid();const shiftDate=dateOnly(body.shiftDate)||dateOnly(new Date());
+  invalidateStoreCache();
   await withTransaction(async db=>{
     await db.query(`INSERT INTO bcare_branches_ref(bcare_branch_id,name_cache,last_synced_at) VALUES($1,$2,NOW()) ON CONFLICT(bcare_branch_id) DO UPDATE SET name_cache=COALESCE(NULLIF(EXCLUDED.name_cache,''),bcare_branches_ref.name_cache),last_synced_at=NOW()`,[String(body.branchId),String(branchName||'')]);
     await db.query(`INSERT INTO shifts(id,shift_date,shift_type,status,branch_id,branch_name_cache,area_id_cache,area_name_cache,room_id_cache,auto_created,created_by,created_at) VALUES($1,$2,$3,'OPEN',$4,$5,$6,$7,$8,$9,$10,NOW())`,[id,shiftDate,body.shiftType,body.branchId,branchName,body.areaId||null,body.areaName||'',body.roomId||null,!!body.autoCreated,user.sub]);
     for(const p of assignedStaff)await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3)`,[id,p.id,p.id===primaryRecorder.id]);
   });
+  invalidateStoreCache();
   return {id,shiftDate,shiftType:body.shiftType,status:'OPEN',branchId:body.branchId,branchName,areaId:body.areaId||null,areaName:body.areaName||'',roomId:body.roomId||null,assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,autoCreated:!!body.autoCreated,createdBy:user.sub,createdAt:new Date().toISOString()};
 }
 
 export async function updateShiftStaffFast(id,user,{assignedStaff,primaryRecorder}){
   if(!await ready())return null;
+  invalidateStoreCache();
   await withTransaction(async db=>{await db.query(`DELETE FROM shift_staff WHERE shift_id=$1`,[id]);for(const p of assignedStaff)await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3)`,[id,p.id,p.id===primaryRecorder.id]);await db.query(`UPDATE shifts SET staff_updated_by=$2,staff_updated_at=NOW() WHERE id=$1`,[id,user.sub])});
+  invalidateStoreCache();
   return true;
 }
 
 export async function replaceShiftRosterFast(shift,items){
   if(!await ready())return null;
+  invalidateStoreCache();
   await withTransaction(async db=>{
     await db.query(`DELETE FROM shift_residents WHERE shift_id=$1`,[shift.id]);
     for(const r of items){
@@ -552,12 +579,13 @@ export async function replaceShiftRosterFast(shift,items){
       await db.query(`INSERT INTO shift_residents(id,shift_id,bcare_resident_id,code_snapshot,full_name_snapshot,branch_id,branch_name_snapshot,area_id_snapshot,area_name_snapshot,room_id_snapshot,room_name_snapshot,bed_name_snapshot,image_snapshot,derived_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'NO_RECORDED_CHANGE') ON CONFLICT(shift_id,bcare_resident_id) DO NOTHING`,[uuid(),shift.id,String(r.id),String(r.code||''),String(r.fullName||''),String(r.branchId||shift.branchId),String(r.branchName||shift.branchName||''),r.areaId?String(r.areaId):null,String(r.areaName||''),r.roomId?String(r.roomId):null,String(r.roomName||''),String(r.bedName||''),String(r.image||'')]);
     }
   });
+  invalidateStoreCache();
   return items.length;
 }
 
 export async function deleteShiftFast(user,id){
   if(!await ready())return null;
-  return withTransaction(async db=>{
+  const result=await withTransaction(async db=>{
     const sr=await db.query(`SELECT * FROM shifts WHERE id=$1`,[id]);if(!sr.rowCount)return {notFound:true};const shift=sr.rows[0];
     if(user.role!=='ADMIN'&&String(shift.branch_id)!==String(user.branchId||''))return {notFound:true};
     const c=await db.query(`SELECT (SELECT COUNT(*) FROM care_records WHERE shift_id=$1)::int changes,(SELECT COUNT(*) FROM toileting_logs WHERE shift_id=$1)::int toileting,(SELECT COUNT(*) FROM handovers WHERE shift_id=$1)::int handovers`,[id]);const counts=c.rows[0];
@@ -565,4 +593,6 @@ export async function deleteShiftFast(user,id){
     await db.query(`DELETE FROM shifts WHERE id=$1`,[id]);
     return {deleted:true,counts,shift:{id,shiftDate:dateOnly(shift.shift_date),shiftType:shift.shift_type,branchId:shift.branch_id}};
   });
+  invalidateStoreCache();
+  return result;
 }

@@ -155,7 +155,7 @@ export default function Reports() {
       <header className="page-head report-page-head">
         <div>
           <h1>Báo cáo biến động NCT</h1>
-          <p>Tổng hợp nhẹ theo NCT. Bấm vào một NCT để mở trang diễn tiến chi tiết riêng.</p>
+          <p>Biến động theo thời điểm thực hiện, giờ Việt Nam. Cảnh báo chưa xử lý là tồn hiện tại, gồm cả trước kỳ.</p>
         </div>
         <div className="report-top-actions">
           <Link className="button-link" to="/reports/staff">Lịch ca nhân viên</Link>
@@ -207,7 +207,7 @@ export default function Reports() {
             <div className="stat warning"><b>{data?.openYellow || 0}</b><span>Vàng chưa xử lý</span></div>
             <div className="stat"><b>{data?.requiresHandover || 0}</b><span>Cần bàn giao</span></div>
             <div className="stat"><b>{data?.toiletingAbnormal || 0}</b><span>Tiêu/tiểu lưu ý</span></div>
-            <div className="stat success-stat"><b>{data?.resolutionRate ?? 100}%</b><span>Tỷ lệ xử lý</span></div>
+            <div className="stat success-stat"><b>{data?.resolutionRate == null ? '—' : `${data.resolutionRate}%`}</b><span>Tỷ lệ xử lý</span></div>
           </div>
 
           {isAdmin && !branchId && branchSummaries.length > 1 && (
