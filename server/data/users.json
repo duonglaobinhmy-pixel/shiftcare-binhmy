@@ -52,7 +52,7 @@
   {
     "id": "DEMO_CARE_SHARED_NT",
     "username": "csv.nt",
-    "password": "Demo@123",
+    "password": "1234567890",
     "fullName": "Chăm sóc dùng chung Nguyễn Tuân",
     "role": "CARE_SHARED",
     "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
@@ -69,6 +69,7 @@
       "MEDICAL.VIEW",
       "MEDICAL.ADMINISTER"
     ],
-    "active": true
+    "active": true,
+    "employeeCode": null
   }
 ]

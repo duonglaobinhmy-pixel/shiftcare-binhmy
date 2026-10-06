@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { canAccessShift } from '../config/shift-access.js';
 import { getPool, middlewareSchemaReady, withTransaction } from './db.service.js';
 import { getSignedWoundImageUrl } from './media-storage.service.js';
 
@@ -34,10 +35,7 @@ function mapShiftRow(x){
   };
 }
 
-function scopeShift(user,shift){
-  if(user.role==='ADMIN') return true;
-  return !shift.branchId || String(shift.branchId)===String(user.branchId||'');
-}
+function scopeShift(user,shift){ return canAccessShift(user,shift); }
 
 export async function getStaffOptionsFast(branchId){
   if(!await ready())return null;

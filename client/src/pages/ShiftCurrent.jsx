@@ -21,11 +21,7 @@ export default function ShiftCurrent(){
       if(!active)return;
       const today=todayInVietnam();
       const open=(response.data||[]).filter(shift=>shift.status==='OPEN'&&shift.shiftDate===today);
-      const assigned=open.filter(shift=>(shift.assignedStaff||[]).some(person=>
-        (person.userId&&String(person.userId)===String(user?.sub||user?.id))||
-        (person.employeeCode&&String(person.employeeCode)===String(user?.employeeCode))
-      ));
-      const list=['ADMIN','BRANCH_DIRECTOR'].includes(user?.role)?open:assigned;
+      const list=['ADMIN','BRANCH_DIRECTOR'].includes(user?.role)?open:(response.data||[]);
       if(list.length===1)navigate(`/shifts/${encodeURIComponent(list[0].id)}`,{replace:true});
       else setCandidates(list);
     }).catch(e=>{if(active)setError(e.message)});

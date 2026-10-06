@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const label = type => type === 'MORNING' ? 'Ca sáng' : 'Ca tối';
-const todayVN = () => new Date().toLocaleDateString('en-CA');
+const todayVN = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 const freshForm = user => ({
   shiftDate: todayVN(), shiftType: 'MORNING',
   branchId: user.branchId || '', branchName: user.branchName || '',
@@ -13,6 +13,7 @@ const freshForm = user => ({
 
 export default function Shifts() {
   const { user, can } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
@@ -113,8 +114,10 @@ export default function Shifts() {
         const branch = branches.find(x => String(x.id) === String(form.branchId));
         const area = locations.areas.find(x => String(x.id) === String(form.areaId));
         const r = await api.createShift({ ...form, branchName: branch?.name || form.branchName, areaName: area?.name || '' });
-        const count = Number(r?.data?.residentCount || 0);
-        setInfo(count > 0 ? `Đã tạo ca và nạp ${count} NCT từ BCARE.` : 'Đã tạo ca nhưng BCARE chưa trả NCT. Có thể bấm “Nạp lại NCT từ BCARE” trên ca vừa tạo.');
+        if (!r?.data?.id) throw new Error('Không nhận được mã ca vừa tạo.');
+        navigate(`/shifts/${encodeURIComponent(r.data.id)}`);
+        return;
+
       }
       setShow(false); setEditingShiftId(null); setForm(freshForm(user)); setStaffOptions([]); await load();
     } catch (e) {
@@ -139,7 +142,10 @@ export default function Shifts() {
     setRefreshingId(row.id); setErr(''); setInfo('');
     try {
       const r = await api.refreshShiftRoster(row.id);
-      const count = Number(r?.data?.residentCount || 0);
+      if (!r?.data?.id) throw new Error('Không nhận được mã ca vừa tạo.');
+        navigate(`/shifts/${encodeURIComponent(r.data.id)}`);
+        return;
+        const count = Number(r?.data?.residentCount || 0);
       setInfo(count ? `Đã nạp lại ${count} NCT từ BCARE cho ${label(row.shiftType)}.` : 'BCARE trả 0 NCT cho bộ lọc cơ sở/khu/phòng của ca này.');
       await load();
     } catch (e) {

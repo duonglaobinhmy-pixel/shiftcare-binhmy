@@ -12,7 +12,7 @@ const MENU_ITEMS=[
   {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
   // c
-  {to:'/users',label:'Tài khoản',permission:'USER.VIEW',icon:'♟'},
+  {to:'/users',label:'Tài khoản & nhân sự',permission:'USER.VIEW',icon:'♟'},
   // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
 ];
 
@@ -36,7 +36,7 @@ export default function Layout(){
       <button type="button" className="sidebar-edge-toggle" onClick={()=>setCollapsed(v=>!v)} title={collapsed?'Mở rộng menu':'Thu gọn menu'} aria-label={collapsed?'Mở rộng menu':'Thu gọn menu'}>{collapsed?'›':'‹'}</button>
       <div className="sidebar-brand">
         <img src="/logo-binhmy.jpg" alt="Bình Mỹ Care" className="sidebar-logo"/>
-        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v10.10</span></div>}
+        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v10.11</span></div>}
       </div>
       <nav className="sidebar-nav">
         {visibleMenus.map(item=><NavLink key={item.to} to={item.to} end={item.end} title={collapsed?item.label:undefined} onClick={closeMobileMenu} className={({isActive})=>isActive?'active':''}>

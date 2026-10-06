@@ -4,7 +4,7 @@
       "id": "5471f017-f04f-401b-8973-7ff3e05fb98a",
       "shiftDate": "2026-09-18",
       "shiftType": "MORNING",
-      "status": "OPEN",
+      "status": "RECEIVED",
       "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
       "branchName": "Trung Xuân Thu - Nguyễn Tuân",
       "areaId": "0b160ef5-b373-4894-5990-08dd589e514b",
@@ -47,7 +47,9 @@
       "primaryRecorderCode": "1011",
       "autoCreated": false,
       "createdBy": "U001",
-      "createdAt": "2026-09-18T09:12:49.280Z"
+      "createdAt": "2026-09-18T09:12:49.280Z",
+      "lockedAt": "2026-10-05T09:06:01.876Z",
+      "lockedBy": "U001"
     }
   ],
   "shiftResidents": [
@@ -602,8 +604,101 @@
       "deleteReason": "s"
     }
   ],
-  "handovers": [],
+  "handovers": [
+    {
+      "id": "3fe3e735-ed18-4f7d-a871-20761eb75bf3",
+      "shiftId": "5471f017-f04f-401b-8973-7ff3e05fb98a",
+      "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
+      "version": 1,
+      "summaryNote": "xsadsasad",
+      "confirmedBy": "U001",
+      "confirmedByName": "Quản trị hệ thống",
+      "confirmedAt": "2026-10-05T09:06:01.876Z",
+      "participants": [
+        {
+          "userId": "9367d344-2e74-4fd7-b6e0-2737baf7fb28",
+          "username": "",
+          "employeeCode": "1011",
+          "fullName": "NGUYỄN GIA HUY",
+          "acknowledged": true,
+          "acknowledgedAt": "2026-10-05T09:06:01.876Z",
+          "recordedBy": "U001"
+        },
+        {
+          "userId": "9e39a03e-1aac-4335-b46d-49ff34ae9773",
+          "username": "",
+          "employeeCode": "655",
+          "fullName": "TRẦN THANH TUYỀN",
+          "acknowledged": true,
+          "acknowledgedAt": "2026-10-05T09:06:01.876Z",
+          "recordedBy": "U001"
+        }
+      ],
+      "receivedBy": "U001",
+      "receivedByName": "Quản trị hệ thống",
+      "receivedAt": "2026-10-05T09:07:47.175Z"
+    }
+  ],
   "auditLogs": [
+    {
+      "id": "933183e5-d5f8-4044-956d-8869245fb584",
+      "actorId": "U001",
+      "actorName": "Quản trị hệ thống",
+      "role": "ADMIN",
+      "branchId": null,
+      "action": "USER_UPDATE",
+      "objectType": "user",
+      "objectId": "DEMO_CARE_SHARED_NT",
+      "detail": {
+        "username": "csv.nt",
+        "role": "CARE_SHARED",
+        "branchId": "3cd882d6-3c35-48dc-2c02-08dd58575585",
+        "permissions": [
+          "SHIFT.VIEW",
+          "CARE.VIEW",
+          "CARE.CREATE",
+          "HANDOVER.VIEW",
+          "HANDOVER.SIGN",
+          "HANDOVER.RECEIVE",
+          "MEDICAL.VIEW",
+          "MEDICAL.ADMINISTER"
+        ]
+      },
+      "occurredAt": "2026-10-05T09:09:01.329Z"
+    },
+    {
+      "id": "30b3706e-00d0-4091-bafd-552004a161a2",
+      "actorId": "U001",
+      "actorName": "Quản trị hệ thống",
+      "role": "ADMIN",
+      "branchId": null,
+      "action": "HANDOVER_RECEIVE",
+      "objectType": "handover",
+      "objectId": "3fe3e735-ed18-4f7d-a871-20761eb75bf3",
+      "detail": {},
+      "occurredAt": "2026-10-05T09:07:47.177Z"
+    },
+    {
+      "id": "8024343b-183f-4726-a727-3f2d42d7ca0f",
+      "actorId": "U001",
+      "actorName": "Quản trị hệ thống",
+      "role": "ADMIN",
+      "branchId": null,
+      "action": "HANDOVER_CONFIRM",
+      "objectType": "handover",
+      "objectId": "3fe3e735-ed18-4f7d-a871-20761eb75bf3",
+      "detail": {
+        "participantIds": [
+          "9367d344-2e74-4fd7-b6e0-2737baf7fb28",
+          "9e39a03e-1aac-4335-b46d-49ff34ae9773"
+        ],
+        "participantNames": [
+          "NGUYỄN GIA HUY",
+          "TRẦN THANH TUYỀN"
+        ]
+      },
+      "occurredAt": "2026-10-05T09:06:01.883Z"
+    },
     {
       "id": "4952d7d1-e1ab-48de-ae73-e7441ccf1253",
       "actorId": "U001",
