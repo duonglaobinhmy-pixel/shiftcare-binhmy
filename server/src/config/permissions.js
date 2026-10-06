@@ -5,6 +5,8 @@ export const PERMISSION_GROUPS = Object.freeze([
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
   { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
   { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
+  { module: 'FOLLOWUP', label: 'Việc được giao', actions: ['VIEW', 'UPDATE'] },
+  { module: 'CSKH', label: 'Chăm sóc khách hàng', actions: ['VIEW', 'CREATE', 'UPDATE'] },
   { module: 'AUDIT', label: 'Nhật ký hệ thống', actions: ['VIEW'] },
   { module: 'USER', label: 'Tài khoản & nhân sự', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'SYSTEM', label: 'Kết nối hệ thống', actions: ['VIEW', 'UPDATE'] },
@@ -15,10 +17,12 @@ export const ALL_PERMISSIONS = Object.freeze(
 );
 
 /**
- * Chỉ còn 3 loại tài khoản đăng nhập:
+ * Có 4 loại tài khoản đăng nhập:
  * - ADMIN: toàn hệ thống.
  * - BRANCH_DIRECTOR: tài khoản giám đốc của một cơ sở.
  * - CARE_SHARED: tài khoản chăm sóc dùng chung tại một cơ sở/iPad.
+ *
+ * - CSKH: tài khoản cá nhân theo dõi và trao đổi gia đình trong một cơ sở.
  *
  * ROLE_CAPS là TRẦN quyền. Admin chỉ được tick quyền nằm trong trần này.
  * Quyền thực tế của Director / CARE_SHARED lấy từ user_permissions.
@@ -32,11 +36,19 @@ export const ROLE_CAPS = Object.freeze({
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'AUDIT.VIEW',
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
+  CSKH: [
+    'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
+    'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+  ],
   CARE_SHARED: [
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'SHIFT.VIEW', 'SHIFT.CREATE',
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
@@ -53,11 +65,19 @@ export const DEFAULT_PERMISSIONS = Object.freeze({
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'AUDIT.VIEW',
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
+  CSKH: [
+    'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
+    'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+  ],
   CARE_SHARED: [
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'SHIFT.VIEW', 'SHIFT.CREATE',
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',

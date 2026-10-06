@@ -9,6 +9,8 @@ const PERMISSION_GROUPS = [
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
   { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
   { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
+  { module: 'FOLLOWUP', label: 'Việc được giao', actions: ['VIEW', 'UPDATE'] },
+  { module: 'CSKH', label: 'Chăm sóc khách hàng', actions: ['VIEW', 'CREATE', 'UPDATE'] },
   { module: 'AUDIT', label: 'Nhật ký hệ thống', actions: ['VIEW'] },
   { module: 'USER', label: 'Tài khoản & nhân sự', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'SYSTEM', label: 'Kết nối hệ thống', actions: ['VIEW', 'UPDATE'] },
@@ -24,6 +26,7 @@ const ROLE_LABEL = {
   ADMIN: 'Admin',
   BRANCH_DIRECTOR: 'Giám đốc cơ sở',
   CARE_SHARED: 'Tài khoản CSV dùng chung',
+  CSKH: 'Chăm sóc khách hàng',
 };
 
 const ROLE_CAPS = {
@@ -35,11 +38,19 @@ const ROLE_CAPS = {
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
     'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'AUDIT.VIEW',
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
+  CSKH: [
+    'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
+    'REPORT.VIEW', 'REPORT.EXPORT',
+    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+  ],
   CARE_SHARED: [
+    'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'SHIFT.VIEW',
     'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
@@ -51,6 +62,7 @@ const ROLE_DEFAULTS = {
   ADMIN: [],
   BRANCH_DIRECTOR: [...ROLE_CAPS.BRANCH_DIRECTOR],
   CARE_SHARED: [...ROLE_CAPS.CARE_SHARED],
+  CSKH: [...ROLE_CAPS.CSKH],
 };
 
 const emptyAccountForm = () => ({
@@ -343,7 +355,7 @@ export default function Users() {
         <label>Username *<input disabled={!!editingId} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />{fieldErrors.username && <small className="field-error">{fieldErrors.username}</small>}</label>
         <label>{editingId ? 'Mật khẩu mới' : 'Mật khẩu *'}<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />{fieldErrors.password && <small className="field-error">{fieldErrors.password}</small>}</label>
         <label>Tên hiển thị *<input value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />{fieldErrors.fullName && <small className="field-error">{fieldErrors.fullName}</small>}</label>
-        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option></select></label>
+        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option><option value="CSKH">Chăm sóc khách hàng</option></select></label>
         {form.role !== 'ADMIN' && <label>Cơ sở *<select value={form.branchId} onChange={e => { const b = branches.find(x => String(x.id) === String(e.target.value)); setForm(current => ({ ...current, branchId: e.target.value, branchName: b?.name || '' })); }}><option value="">-- Chọn cơ sở --</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>{fieldErrors.branchId && <small className="field-error">{fieldErrors.branchId}</small>}</label>}
       </div>
 
@@ -363,7 +375,7 @@ export default function Users() {
     </form>}
 
     {isAdmin && <div className="panel">
-      <div className="permission-head"><div><h2>Tài khoản đăng nhập</h2><p>Mỗi cơ sở tối đa 1 Giám đốc hoạt động và 1 tài khoản CSV dùng chung hoạt động.</p></div></div>
+      <div className="permission-head"><div><h2>Tài khoản đăng nhập</h2><p>Mỗi cơ sở tối đa 1 Giám đốc hoạt động và 1 tài khoản CSV dùng chung hoạt động. CSKH có thể tạo nhiều tài khoản cá nhân, mỗi tài khoản gắn một cơ sở.</p></div></div>
       {loading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải tài khoản...</b></div></div> : <div className="table-wrap"><table><thead><tr><th>Tài khoản</th><th>Tên hiển thị</th><th>Vai trò</th><th>Cơ sở</th><th>Quyền</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
         {rows.map(x => <tr key={x.id}><td><b>{x.username}</b></td><td>{x.fullName}</td><td>{ROLE_LABEL[x.role] || x.role}</td><td>{x.role === 'ADMIN' ? 'Toàn hệ thống' : (x.branchName || '—')}</td><td>{x.role === 'ADMIN' ? <span className="status-pill on">Toàn quyền</span> : <span>{Array.isArray(x.permissions) ? x.permissions.length : 0} quyền</span>}</td><td><span className={`status-pill ${x.active ? 'on' : 'off'}`}>{x.active ? 'Hoạt động' : 'Đã khóa'}</span></td><td><div className="actions"><button className="secondary" onClick={() => startEditAccount(x)}>Sửa quyền</button>{x.active ? <button className="secondary" onClick={() => deactivate(x)}>Khóa</button> : <button onClick={() => activate(x)}>Mở khóa</button>}{!x.active && <button className="danger" onClick={() => removeAccount(x)}>Xóa</button>}</div></td></tr>)}
       </tbody></table></div>}

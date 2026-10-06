@@ -28,7 +28,7 @@ function validEmployeeCode(v) {
   return /^[A-Za-z0-9._-]{1,30}$/.test(String(v || '').trim());
 }
 
-const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'CARE_SHARED']);
+const VALID_ROLES = new Set(['ADMIN', 'BRANCH_DIRECTOR', 'CARE_SHARED', 'CSKH']);
 
 function isBranchDirector(user) {
   return user.role === 'BRANCH_DIRECTOR';
@@ -164,7 +164,7 @@ function resolveAccountBranch(role, body, current = null) {
   if (role === 'ADMIN') return { branchId: null, branchName: 'Toàn hệ thống' };
   const branchId = String(body.branchId ?? current?.branchId ?? '').trim();
   const branch = CARE_BRANCH_MAP[branchId];
-  if (!branch) throw new Error('Giám đốc cơ sở và tài khoản CSV bắt buộc phải chọn một cơ sở BCARE hợp lệ.');
+  if (!branch) throw new Error('Giám đốc, CSV và CSKH bắt buộc phải chọn một cơ sở BCARE hợp lệ.');
   return { branchId, branchName: branch.name };
 }
 

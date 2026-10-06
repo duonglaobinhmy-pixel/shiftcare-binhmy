@@ -13,6 +13,7 @@ import ShiftEntryPicker from './pages/ShiftEntryPicker';
 import ShiftCurrent from './pages/ShiftCurrent';
 import ShiftRecords from './pages/ShiftRecords';
 import Reports from './pages/Reports';
+import OperationsReports from './pages/OperationsReports';
 import StaffReports from './pages/StaffReports';
 import StaffReportDay from './pages/StaffReportDay';
 import ResidentReportDetail from './pages/ResidentReportDetail';
@@ -40,10 +41,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="shifts/:id/records/:filter" element={<ShiftRecords/>}/>
             <Route path="shifts/:id/entry" element={<ShiftEntryPicker/>}/>
             <Route path="shifts/:id/entry/:residentId" element={<ShiftDetail/>}/>
-            <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Reports/></ProtectedRoute>}/>
-            <Route path="reports/staff" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><StaffReports/></ProtectedRoute>}/>
-            <Route path="reports/staff/day/:date" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><StaffReportDay/></ProtectedRoute>}/>
-            <Route path="reports/resident/:residentId" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><ResidentReportDetail/></ProtectedRoute>}/>
+            <Route path="cskh" element={<ProtectedRoute permission="CSKH.VIEW"><OperationsReports customer/></ProtectedRoute>}/>
+            <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><Reports/></ProtectedRoute>}/>
+            <Route path="reports/staff" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><StaffReports/></ProtectedRoute>}/>
+            <Route path="reports/staff/day/:date" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><StaffReportDay/></ProtectedRoute>}/>
+            <Route path="reports/resident/:residentId" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><ResidentReportDetail/></ProtectedRoute>}/>
             <Route path="audit" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Audit/></ProtectedRoute>}/>
             <Route path="users" element={<ProtectedRoute roles={['ADMIN']}><Users/></ProtectedRoute>}/>
             <Route path="system" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><System/></ProtectedRoute>}/>
