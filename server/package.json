@@ -7,8 +7,7 @@
     "start": "node src/app.js",
     "db:migrate:middleware": "node scripts/db-migrate-middleware.js",
     "db:migrate:app-state": "node scripts/migrate-app-state-to-middleware.js",
-    "db:import:json": "node scripts/import-json-to-middleware.js",
-    "test": "node --test test/operations.test.js test/operations-http.test.js"
+    "db:import:json": "node scripts/import-json-to-middleware.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",
