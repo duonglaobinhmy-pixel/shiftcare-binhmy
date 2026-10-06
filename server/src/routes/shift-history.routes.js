@@ -1,7 +1,7 @@
 import {Router} from 'express';
 import {authenticate,allowPermission} from '../middleware/auth.js';
 import {getStore} from '../services/store.service.js';
-import {canReadShiftHistory,shiftHistorySummary} from '../services/shift-history.service.js';
+import {canReadShiftHistory,shiftHistorySummary,findPreviousShift} from '../services/shift-history.service.js';
 const router=Router();
 router.use(authenticate,allowPermission('SHIFT.VIEW'),allowPermission('CARE.VIEW'));
 const route=(url,fn)=>router.get(url,(req,res,next)=>Promise.resolve(fn(req,res)).catch(next));
@@ -19,6 +19,7 @@ route('/',async(req,res)=>{
 route('/:id',async(req,res)=>{
  const store=await getStore(),shift=(store.shifts||[]).find(s=>String(s.id)===req.params.id);
  if(!canReadShiftHistory(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca trong cơ sở được giao.'});
- res.json({success:true,data:shiftHistorySummary(store,shift)});
+ const previous=findPreviousShift(store,req.user,shift);
+ res.json({success:true,data:{...shiftHistorySummary(store,shift),previousShift:previous?shiftHistorySummary(store,previous):null}});
 });
 export default router;

@@ -24,3 +24,18 @@ export function shiftHistorySummary(store, shift) {
     requiresHandover:changes.filter(r=>r.requiresHandover).length,
   },asOf:new Date().toISOString(),readOnly:true};
 }
+
+// Compare only shifts with the same operational scope and an earlier slot.
+export function findPreviousShift(store, user, shift) {
+  const order = {MORNING: 0, AFTERNOON: 1, NIGHT: 2};
+  const slot = s => `${s.shiftDate}|${order[s.shiftType] ?? -1}`;
+  if (!(shift.shiftType in order)) return null;
+  return (store.shifts || []).filter(s =>
+    s.id !== shift.id && s.shiftType in order && canReadShiftHistory(user, s) &&
+    String(s.branchId || '') === String(shift.branchId || '') &&
+    String(s.areaId || '') === String(shift.areaId || '') &&
+    String(s.roomId || '') === String(shift.roomId || '') && slot(s) < slot(shift)
+  ).sort((a, b) => slot(b).localeCompare(slot(a)) ||
+    String(b.createdAt || '').localeCompare(String(a.createdAt || '')) ||
+    String(b.id).localeCompare(String(a.id)))[0] || null;
+}
