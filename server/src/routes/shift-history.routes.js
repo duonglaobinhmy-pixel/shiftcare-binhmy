@@ -16,6 +16,21 @@ route('/',async(req,res)=>{
  const data=shifts.map(s=>{const report=shiftHistorySummary(store,s);return{...s,residentCount:report.summary.rosterResidents,summary:report.summary,handoverConfirmedAt:report.handover?.confirmedAt||null}});
  res.json({success:true,data});
 });
+// Full resident history in the selected shift's branch, with independent read authorization.
+route('/:id/resident/:residentId',async(req,res)=>{
+ const store=await getStore(),shift=(store.shifts||[]).find(s=>String(s.id)===req.params.id);
+ if(!canReadShiftHistory(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca trong cơ sở được giao.'});
+ const residentId=String(req.params.residentId);
+ const belongs=(store.shiftResidents||[]).some(r=>String(r.shiftId)===String(shift.id)&&String(r.residentId)===residentId)||
+  [...(store.changeLogs||[]),...(store.toiletingLogs||[])].some(r=>String(r.shiftId)===String(shift.id)&&String(r.residentId)===residentId&&!r.deleted);
+ if(!belongs)return res.status(404).json({success:false,message:'NCT không thuộc ca đang xem.'});
+ const shifts=(store.shifts||[]).filter(s=>String(s.branchId)===String(shift.branchId)&&canReadShiftHistory(req.user,s));
+ const reports=shifts.map(s=>shiftHistorySummary(store,s));
+ const changes=reports.flatMap(r=>r.changes).filter(r=>String(r.residentId)===residentId);
+ const toileting=reports.flatMap(r=>r.toileting).filter(r=>String(r.residentId)===residentId);
+ const newest=(a,b)=>(Date.parse(b.occurredAt||b.createdAt)||0)-(Date.parse(a.occurredAt||a.createdAt)||0);
+ res.json({success:true,data:{residentId,branchId:shift.branchId,scope:'ALL_HISTORY',changes:changes.sort(newest),toileting:toileting.sort(newest),shifts:shifts.filter(s=>[...changes,...toileting].some(r=>String(r.shiftId)===String(s.id)))}});
+});
 route('/:id',async(req,res)=>{
  const store=await getStore(),shift=(store.shifts||[]).find(s=>String(s.id)===req.params.id);
  if(!canReadShiftHistory(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca trong cơ sở được giao.'});

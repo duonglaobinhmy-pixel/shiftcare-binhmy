@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
+import { newestFirst, downloadDetailCsv } from '../utils/report-export';
 
 const VN_TZ = 'Asia/Ho_Chi_Minh';
 const catLabel = {
@@ -58,6 +59,7 @@ export default function ResidentReportDetail() {
   const branchId = searchParams.get('branchId') || '';
 
   const [data, setData] = useState(null);
+  const [allHistory, setAllHistory] = useState(true);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
@@ -65,13 +67,14 @@ export default function ResidentReportDetail() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setData(null);
     setErr('');
-    api.residentMedicalReport(residentId, from, to, branchId)
+    api.residentMedicalReport(residentId, from, to, branchId, allHistory)
       .then(r => { if (alive) setData(r.data || null); })
       .catch(e => { if (alive) setErr(e.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [residentId, from, to, branchId]);
+  }, [residentId, from, to, branchId, allHistory]);
 
   const backQs = useMemo(() => {
     const q = new URLSearchParams();
@@ -90,7 +93,7 @@ export default function ResidentReportDetail() {
       }
     }
     for (const t of data?.toileting || []) rows.push({ type: 'TOILET', at: t.createdAt, item: t });
-    return rows.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    return rows.sort((a, b) => newestFirst({...a.item, occurredAt:a.at}, {...b.item, occurredAt:b.at}));
   }, [data]);
 
   const grouped = useMemo(() => {
@@ -105,7 +108,7 @@ export default function ResidentReportDetail() {
 
   const reportVitalHistory = useMemo(() => {
     const fromApi = Array.isArray(data?.vitalHistory) ? data.vitalHistory : [];
-    if (fromApi.length) return fromApi;
+    if (fromApi.length) return [...fromApi].sort(newestFirst);
 
     // Fallback trực tiếp từ changes. Timeline đang hiển thị được sinh hiệu thì
     // khối Chỉ số sinh tồn cũng phải hiển thị cùng dữ liệu đó.
@@ -124,7 +127,7 @@ export default function ResidentReportDetail() {
           v.insulinDoseUnits
         ].some(value => value !== null && value !== undefined && value !== '');
       })
-      .sort((a, b) => String(b.occurredAt || b.createdAt || '').localeCompare(String(a.occurredAt || a.createdAt || '')));
+      .sort(newestFirst);
   }, [data]);
 
   const latestVitalRecord = useMemo(() => {
@@ -133,7 +136,7 @@ export default function ResidentReportDetail() {
   }, [data, reportVitalHistory]);
 
   const summary = data?.summary || {};
-  const rangeLabel = from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
+  const rangeLabel = allHistory ? 'Toàn bộ lịch sử đã lưu' : from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
 
   return (
     <section>
@@ -144,6 +147,9 @@ export default function ResidentReportDetail() {
           <p>{[data?.resident?.areaName, data?.resident?.roomName, data?.resident?.bedName].filter(Boolean).join(' · ') || '—'} · {rangeLabel}</p>
         </div>
         <div className="report-top-actions">
+          <button className={allHistory ? '' : 'secondary'} aria-pressed={allHistory} onClick={()=>setAllHistory(true)}>Toàn bộ lịch sử</button>
+          <button className={!allHistory ? '' : 'secondary'} aria-pressed={!allHistory} onClick={()=>setAllHistory(false)}>Trong kỳ báo cáo</button>
+          <button className="secondary" disabled={loading || !data} onClick={() => downloadDetailCsv(`bao-cao-nct-${residentId}-${allHistory?'toan-bo-lich-su':`${from}-${to}`}.csv`,data.changes||[],data.toileting||[],data.shiftDetails||[],data.resident)}>CSV đầy đủ của NCT</button>
           <button className="secondary" onClick={() => window.print()}>In / PDF</button>
         </div>
       </header>
@@ -174,7 +180,7 @@ export default function ResidentReportDetail() {
                 <h2>Chỉ số sinh tồn</h2>
                 <p>
                   {reportVitalHistory.length
-                    ? `${reportVitalHistory.length} lần đo trong khoảng báo cáo.`
+                    ? `${reportVitalHistory.length} lần đo ${allHistory ? 'trong toàn bộ lịch sử' : 'trong khoảng báo cáo'}.`
                     : latestVitalRecord
                       ? 'Không có lần đo mới trong khoảng báo cáo; hiển thị chỉ số gần nhất trước/cuối kỳ.'
                       : 'Chưa có dữ liệu sinh hiệu.'}
@@ -205,7 +211,7 @@ export default function ResidentReportDetail() {
 
                 {!!reportVitalHistory.length && (
                   <div className="resident-vital-history">
-                    <h3>Lịch sử đo trong kỳ</h3>
+                    <h3>{allHistory ? 'Toàn bộ lịch sử đo' : 'Lịch sử đo trong kỳ'}</h3>
                     {reportVitalHistory.map(c => {
                       const values = vitalText(c.vitals);
                       return (
@@ -255,6 +261,8 @@ export default function ResidentReportDetail() {
                             <p>{c.content || '—'}</p>
                             {!!vitals.length && <div className="resident-vital-chips">{vitals.map(v => <span key={v}>{v}</span>)}</div>}
                             {c.intervention && <div className="resident-event-action"><b>Xử lý:</b> {c.intervention}</div>}
+                            {c.resolutionNote && <div className="resident-event-action"><b>Kết quả:</b> {c.resolutionNote}</div>}
+                            {c.followUp && <div className="resident-event-action"><b>Theo dõi tiếp:</b> {c.followUp}</div>}
                             {c.requiresHandover && <div className="resident-handover-chip">↗ Cần bàn giao ca sau</div>}
                             <small>Người ghi: {c.createdByName || '—'}</small>
                             {!!c.woundImages?.length && (

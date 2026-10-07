@@ -492,3 +492,9 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
   .resident-record-button{font-size:10.5px;padding:6px 7px;min-height:32px}
   .review-save-footer button{padding:7px 9px!important;font-size:11.5px!important}
 }
+
+/* Detailed resident report: compact CSV controls on tablet/mobile. */
+.report-top-actions{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.resident-event-content,.resident-detail-head>div,.resident-vital-history-row>*{min-width:0;overflow-wrap:anywhere}
+@media(max-width:1024px){.report-page-head{flex-wrap:wrap}.report-top-actions button{font-size:12px;padding:9px 12px}}
+@media(max-width:560px){.report-top-actions{width:100%}.report-top-actions>*{flex:1 1 130px;white-space:normal}.resident-vital-history-row{display:flex;flex-direction:column;align-items:flex-start}}

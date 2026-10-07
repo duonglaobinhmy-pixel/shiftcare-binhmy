@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
+import { newestFirst, downloadDetailCsv } from '../utils/report-export';
 import { useAuth } from '../context/AuthContext';
 
 const VN_TZ = 'Asia/Ho_Chi_Minh';
@@ -101,11 +102,7 @@ export default function Reports() {
           .toLowerCase()
           .includes(query);
       })
-      .sort((a, b) =>
-        (riskRank(b) - riskRank(a)) ||
-        (Number(b.changeCount || 0) - Number(a.changeCount || 0)) ||
-        String(a.residentName || '').localeCompare(String(b.residentName || ''), 'vi')
-      );
+      .sort((a, b) => newestFirst({...a, occurredAt:a.lastEventAt}, {...b, occurredAt:b.lastEventAt}));
   }, [data, q, riskFilter]);
 
   const outstanding = useMemo(() => (data?.outstanding || []).slice(0, 8), [data]);
@@ -114,36 +111,13 @@ export default function Reports() {
     const qs = new URLSearchParams();
     qs.set('from', from);
     qs.set('to', to);
-    if (branchId) qs.set('branchId', branchId);
+    if (row.branchId || branchId) qs.set('branchId', row.branchId || branchId);
     navigate(`/reports/resident/${encodeURIComponent(row.residentId)}?${qs.toString()}`);
   }
 
   function exportCsv() {
     if (!data) return;
-    const rows = [
-      ['NCT', 'Cơ sở', 'Khu', 'Phòng', 'Giường', 'Biến động', 'Đỏ mở', 'Vàng mở', 'Cần bàn giao', 'Tiêu/tiểu lưu ý', 'Nội dung gần nhất'],
-      ...(data.residentSummaries || []).map(x => [
-        x.residentName || '',
-        x.branchName || '',
-        x.areaName || '',
-        x.roomName || '',
-        x.bedName || '',
-        x.changeCount || 0,
-        x.redOpen || 0,
-        x.yellowOpen || 0,
-        x.handoverCount || 0,
-        x.toiletingAbnormal || 0,
-        x.lastContent || ''
-      ])
-    ];
-    const csv = '\ufeff' + rows
-      .map(row => row.map(v => `"${String(v ?? '').replaceAll('"', '""')}"`).join(','))
-      .join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = `bao-cao-nct-${from}-${to}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    downloadDetailCsv(`bao-cao-nct-chi-tiet-${from}-${to}.csv`, data.details || [], data.toiletingDetails || [], data.shiftDetails || []);
   }
 
   const branchName = branchId
@@ -159,7 +133,7 @@ export default function Reports() {
         </div>
         <div className="report-top-actions">
           <Link className="button-link" to="/reports/staff">Lịch ca nhân viên</Link>
-          <button className="secondary" onClick={exportCsv} disabled={!data}>Xuất CSV</button>
+          <button className="secondary" onClick={exportCsv} disabled={loading || !data}>CSV chi tiết toàn kỳ</button>
         </div>
       </header>
 
@@ -275,7 +249,7 @@ export default function Reports() {
             <div className="panel-title resident-index-title">
               <div>
                 <h2>NCT trong kỳ</h2>
-                <p>Không tải toàn bộ bảng chi tiết. Chọn NCT để xem timeline riêng.</p>
+                <p>Mới nhất lên đầu. Chọn NCT để xem đầy đủ từng lần ghi nhận; CSV xuất tất cả ghi nhận trong kỳ.</p>
               </div>
               <span>{residents.length} NCT</span>
             </div>
@@ -299,7 +273,7 @@ export default function Reports() {
               {residents.map(x => (
                 <button
                   type="button"
-                  key={x.residentId}
+                  key={`${x.branchId}:${x.residentId}`}
                   className={`resident-report-card ${x.redOpen ? 'risk-red' : x.yellowOpen ? 'risk-yellow' : ''}`}
                   onClick={() => openResident(x)}
                 >

@@ -1,3 +1,5 @@
+const newestFirst=(a,b)=>(Date.parse(b.occurredAt||b.createdAt)||0)-(Date.parse(a.occurredAt||a.createdAt)||0)||String(b.id||'').localeCompare(String(a.id||''));
+const scopeId=value=>value==null||value===''?'':String(value).trim();
 // Reading another shift must not extend canAccessShift's write access.
 export function canReadShiftHistory(user, shift) {
   return !!user && !!shift && (user.role === 'ADMIN' ||
@@ -14,7 +16,7 @@ export function shiftHistorySummary(store, shift) {
   };
   const normalized=changes.map(r=>({...r,attentionLevel:attention(r),attentionStatus:attention(r)?(r.attentionStatus==='RESOLVED'?'RESOLVED':'OPEN'):null}));
   const handover=(store.handovers||[]).filter(h=>h.shiftId===shift.id).sort((a,b)=>String(b.confirmedAt||'').localeCompare(String(a.confirmedAt||'')))[0]||null;
-  return {shift,residents,changes:normalized,toileting:toilets,handover,summary:{
+  return {shift,residents,changes:normalized.sort(newestFirst),toileting:toilets.sort(newestFirst),handover,summary:{
     rosterResidents:new Set(residents.map(r=>r.residentId)).size,
     residentsWithActivity:new Set(changes.map(r=>r.residentId)).size,
     records:changes.length,toiletingRecords:toilets.length,
@@ -32,9 +34,9 @@ export function findPreviousShift(store, user, shift) {
   if (!(shift.shiftType in order)) return null;
   return (store.shifts || []).filter(s =>
     s.id !== shift.id && s.shiftType in order && canReadShiftHistory(user, s) &&
-    String(s.branchId || '') === String(shift.branchId || '') &&
-    String(s.areaId || '') === String(shift.areaId || '') &&
-    String(s.roomId || '') === String(shift.roomId || '') && slot(s) < slot(shift)
+    scopeId(s.branchId) === scopeId(shift.branchId) &&
+    scopeId(s.areaId) === scopeId(shift.areaId) &&
+    scopeId(s.roomId) === scopeId(shift.roomId) && slot(s) < slot(shift)
   ).sort((a, b) => slot(b).localeCompare(slot(a)) ||
     String(b.createdAt || '').localeCompare(String(a.createdAt || '')) ||
     String(b.id).localeCompare(String(a.id)))[0] || null;
