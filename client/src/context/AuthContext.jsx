@@ -85,6 +85,14 @@ export function AuthProvider({ children }) {
     if (user) refreshUser().catch(logout);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Permissions can change while a shared iPad session remains signed in.
+  useEffect(()=>{
+    const refresh=()=>{if(localStorage.getItem('shiftcare_token'))refreshUser().catch(e=>{if(e.status===401)logout()})};
+    const visible=()=>{if(document.visibilityState==='visible')refresh()};
+    window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',visible);
+    return()=>{window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',visible)};
+  },[refreshUser,logout]);
+
   const can = useCallback(permission => userCan(user, permission), [user]);
   const value = useMemo(() => ({ user, loading, login, logout, refreshUser, can }), [user, loading, logout, refreshUser, can]);
 
