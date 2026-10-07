@@ -410,3 +410,85 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100dvh;min-height:
   .voice-review-body{padding-right:0}
   .entry-modal-footer,.voice-review-footer{padding-bottom:calc(2px + env(safe-area-inset-bottom))}
 }
+
+/* ===== 2026-10-07: compact resident list + iPad confirmation modal ===== */
+.shift-resident-table-wrap{overflow-x:hidden}
+.shift-resident-table{table-layout:fixed;min-width:0!important;width:100%}
+.shift-resident-table th:nth-child(1),.shift-resident-table td:nth-child(1){width:28%}
+.shift-resident-table th:nth-child(2),.shift-resident-table td:nth-child(2){width:25%}
+.shift-resident-table th:nth-child(3),.shift-resident-table td:nth-child(3){width:13%}
+.shift-resident-table th:nth-child(4),.shift-resident-table td:nth-child(4){width:15%}
+.shift-resident-table th:nth-child(5),.shift-resident-table td:nth-child(5){width:19%}
+.shift-resident-table td{overflow-wrap:anywhere}
+.resident-status-badge{font-size:10px!important;line-height:1.05;padding:4px 7px!important;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.resident-status-badge.NO_RECORDED_CHANGE{background:#e9f3ef;color:#286453}
+.resident-status-badge.RECORDED_CHANGE{background:#e4f4eb;color:#176a4e}
+.resident-status-badge.REQUIRES_HANDOVER{background:#fff1c8;color:#7d5b00}
+.resident-record-button{padding:8px 10px;min-height:38px;white-space:nowrap;font-size:13px;line-height:1.05}
+
+.review-save-card{width:min(700px,94vw)!important;max-height:min(88dvh,760px)!important;padding:0!important;overflow:hidden!important;grid-template-rows:auto minmax(0,1fr) auto!important;gap:0!important}
+.review-save-card>.modal-head{padding:16px 18px 12px;border-bottom:1px solid #e3ece8;gap:10px}
+.review-save-card>.modal-head h2{margin:0 0 3px;font-size:22px}
+.review-save-card>.modal-head p{margin:0;line-height:1.3}
+.review-save-card>.modal-head>button{padding:8px 11px;font-size:13px;white-space:nowrap}
+.review-save-body{padding:12px 18px!important;overflow-y:auto!important;overflow-x:hidden!important;min-height:0}
+.review-save-body .review-grid{gap:8px}
+.review-save-body .review-grid>div{padding:10px;border-radius:10px;gap:2px}
+.review-save-body .review-grid p{margin:0;line-height:1.32}
+.review-save-body .confirm-note{padding:9px 10px;margin-top:8px;font-size:13px}
+.review-save-footer{display:flex;justify-content:flex-end;gap:8px!important;padding:10px 18px calc(10px + env(safe-area-inset-bottom))!important;border-top:1px solid #e3ece8;background:#fff;position:relative;z-index:4;flex-wrap:nowrap!important}
+.review-save-footer button{min-height:40px!important;padding:9px 14px!important;font-size:13px!important;flex:0 0 auto!important}
+
+@media(max-width:1024px){
+  .shift-resident-table th,.shift-resident-table td{padding:10px 8px}
+  .shift-resident-table th:nth-child(1),.shift-resident-table td:nth-child(1){width:27%}
+  .shift-resident-table th:nth-child(2),.shift-resident-table td:nth-child(2){width:23%}
+  .shift-resident-table th:nth-child(3),.shift-resident-table td:nth-child(3){width:12%}
+  .shift-resident-table th:nth-child(4),.shift-resident-table td:nth-child(4){width:16%}
+  .shift-resident-table th:nth-child(5),.shift-resident-table td:nth-child(5){width:22%}
+  .resident-status-badge{font-size:9px!important;padding:4px 6px!important}
+  .resident-record-button{font-size:12px;padding:7px 8px}
+  .review-save-card{width:min(620px,92vw)!important;max-height:86dvh!important}
+  .review-save-card>.modal-head{padding:13px 14px 10px}
+  .review-save-card>.modal-head h2{font-size:20px}
+  .review-save-body{padding:10px 14px!important}
+  .review-save-footer{padding:9px 14px calc(9px + env(safe-area-inset-bottom))!important}
+  .review-save-footer button{min-height:38px!important;padding:8px 12px!important;font-size:12px!important}
+}
+
+@media(max-width:700px){
+  .shift-resident-table-wrap{border:0;background:transparent;overflow:visible!important}
+  .shift-resident-table{display:block!important;width:100%!important;min-width:0!important}
+  .shift-resident-table thead{display:none}
+  .shift-resident-table tbody{display:grid;gap:8px;width:100%}
+  .shift-resident-table tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px 8px;align-items:center;background:#fff;border:1px solid #dde9e4;border-radius:12px;padding:10px;width:100%;min-width:0}
+  .shift-resident-table td{display:block!important;width:auto!important;padding:0!important;border:0!important;min-width:0}
+  .shift-resident-table td:nth-child(1){grid-column:1/-1}
+  .shift-resident-table td:nth-child(2){grid-column:1/-1;color:#60766f;font-size:12px;padding-left:42px!important;margin-top:-4px!important}
+  .shift-resident-table td:nth-child(3){grid-column:1;font-size:13px;padding-left:42px!important}
+  .shift-resident-table td:nth-child(4){grid-column:2;justify-self:end}
+  .shift-resident-table td:nth-child(5){grid-column:3;justify-self:end}
+  .shift-resident-table .resident{gap:8px}
+  .shift-resident-table .resident .avatar{width:34px;height:34px;flex:0 0 34px}
+  .resident-status-badge{font-size:9px!important;padding:4px 6px!important;max-width:72px}
+  .resident-record-button{font-size:11px;padding:7px 8px;min-height:34px;border-radius:9px}
+  .review-save-card{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;border-radius:14px!important}
+  .review-save-card>.modal-head{padding:12px}
+  .review-save-card>.modal-head h2{font-size:19px}
+  .review-save-card>.modal-head p{font-size:13px}
+  .review-save-card>.modal-head>button{padding:7px 9px;font-size:12px}
+  .review-save-body{padding:9px 12px!important}
+  .review-save-body .review-grid{grid-template-columns:1fr!important;gap:7px}
+  .review-save-body .review-wide{grid-column:auto}
+  .review-save-body .review-grid>div{padding:9px}
+  .review-save-footer{padding:8px 12px calc(8px + env(safe-area-inset-bottom))!important;gap:7px!important}
+  .review-save-footer button{min-height:36px!important;padding:7px 10px!important;font-size:12px!important}
+}
+
+@media(max-width:420px){
+  .shift-resident-table tr{grid-template-columns:minmax(0,1fr) auto auto;padding:9px 8px;gap:5px 6px}
+  .shift-resident-table td:nth-child(2),.shift-resident-table td:nth-child(3){padding-left:40px!important}
+  .resident-status-badge{max-width:62px;font-size:8.5px!important;padding:4px 5px!important}
+  .resident-record-button{font-size:10.5px;padding:6px 7px;min-height:32px}
+  .review-save-footer button{padding:7px 9px!important;font-size:11.5px!important}
+}
