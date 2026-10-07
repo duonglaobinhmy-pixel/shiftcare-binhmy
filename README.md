@@ -42,7 +42,7 @@ Bản demo vận hành **Ca chăm sóc + Sổ giao ca + Nhật ký biến độn
 - Dashboard theo ngày có **NCT cần chú ý**, biến động, ca, bàn giao, ca đã giao chưa nhận.
 - Báo cáo ngày có tổng hợp + chi tiết nguồn, lọc ngày, in/PDF từ trình duyệt và xuất CSV.
 - Giám đốc cơ sở vẫn **read-only** dữ liệu nghiệp vụ.
-- Gemini `gemini-3.8-flash`, prompt/API key ở backend; AI chỉ đọc dữ liệu trong scope.
+- Gemini `gemini-2.5-flash`, prompt/API key ở backend; AI chỉ đọc dữ liệu trong scope.
 - PWA + offline outbox vẫn giữ nguyên.
 
 ## Luồng vận hành
@@ -142,7 +142,7 @@ BCARE_USERNAME=...
 BCARE_PASSWORD=...
 ALLOW_BCARE_MOCK=true
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-2.5-flash
 TELEGRAM_ALERTS_ENABLED=true
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_ALERT_CHAT_ID=...

@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import {BrowserRouter,Routes,Route} from 'react-router-dom';
-import {AuthProvider} from './context/AuthContext';
+import {BrowserRouter,Routes,Route,Navigate} from 'react-router-dom';
+import {AuthProvider,useAuth} from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -24,6 +24,11 @@ import System from './pages/System';
 import Forbidden from './pages/Forbidden';
 import './styles/app.css';
 
+function HomeLanding(){
+  const {can}=useAuth();
+  return can('DASHBOARD.VIEW') ? <Dashboard/> : <Navigate to="/shifts" replace/>;
+}
+
 if('serviceWorker'in navigator && import.meta.env.PROD){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(console.warn))}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -34,7 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/login" element={<Login/>}/>
           <Route path="/403" element={<Forbidden/>}/>
           <Route element={<ProtectedRoute><Layout/></ProtectedRoute>}>
-            <Route index element={<Dashboard/>}/>
+            <Route index element={<HomeLanding/>}/>
             <Route path="residents" element={<Residents/>}/>
             <Route path="shifts" element={<Shifts/>}/>
             <Route path="shifts/current" element={<ShiftCurrent/>}/>

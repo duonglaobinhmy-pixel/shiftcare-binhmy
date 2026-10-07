@@ -206,16 +206,21 @@ function geminiModelCandidates(){
 }
 function isAccessDenied(error){return /project has been denied access|permission denied|access denied|api key.*(invalid|blocked)|forbidden|403/i.test(String(error?.message||''))}
 let geminiBlockedReason='';
-function markGeminiBlocked(error){if(isAccessDenied(error))geminiBlockedReason=String(error?.message||'Gemini access denied')}
-function publicGeminiWarning(){return geminiBlockedReason?'Gemini ngoài đang bị Google từ chối quyền truy cập; hệ thống đang dùng báo cáo nội bộ từ CSDL.':''}
+let geminiBlockedUntil=0;
+function geminiBlocked(){
+  if(geminiBlockedUntil&&Date.now()>=geminiBlockedUntil){geminiBlockedReason='';geminiBlockedUntil=0}
+  return Boolean(geminiBlockedReason);
+}
+function markGeminiBlocked(error){if(isAccessDenied(error)){geminiBlockedReason=String(error?.message||'Gemini access denied');geminiBlockedUntil=Date.now()+5*60*1000}}
+function publicGeminiWarning(){return geminiBlocked()?'Gemini đang bị Google từ chối quyền truy cập; hệ thống tạm dùng báo cáo nội bộ và sẽ tự thử lại.':''}
 
 export function getAIStatus(){
   const geminiConfigured=Boolean(text(process.env.GEMINI_API_KEY));
   const sttFallbackConfigured=Boolean(text(process.env.STT_API_URL));
   return {
     geminiConfigured,
-    geminiAvailable:geminiConfigured&&!geminiBlockedReason,
-    geminiBlocked:Boolean(geminiBlockedReason),
+    geminiAvailable:geminiConfigured&&!geminiBlocked(),
+    geminiBlocked:geminiBlocked(),
     geminiWarning:publicGeminiWarning(),
     browserSpeechPreferred:true,
     voiceMode:'browser-speech',
@@ -234,7 +239,7 @@ async function callGeminiText(key,model,body){
 
 async function askGemini(context,message){
   const key=text(process.env.GEMINI_API_KEY);
-  if(!key||geminiBlockedReason)return null;
+  if(!key||geminiBlocked())return null;
   const system='Bạn là trợ lý báo cáo ShiftCare Bình Mỹ. CHỈ dùng CONTEXT JSON. Không chẩn đoán, không bịa số, không suy diễn dữ liệu thiếu, không sửa hồ sơ. Phải tôn trọng đúng khoảng ngày/cơ sở/resident trong context. Ưu tiên cảnh báo đỏ/vàng, bàn giao, sinh hiệu bất thường và biến động gần nhất. Trả lời tiếng Việt rõ, ngắn, có số liệu đúng như context.';
   const body={contents:[{role:'user',parts:[{text:`${system}\n\nCONTEXT JSON:\n${JSON.stringify(context)}\n\nYÊU CẦU:\n${message}`}]}],generationConfig:{temperature:0.1,maxOutputTokens:900}};
   let lastError=null;
@@ -261,7 +266,7 @@ export async function answerAI(user,message,scope={}){
     answer:fallbackAnswer(message,context),
     mode:'local-report',
     model:null,
-    warning:geminiBlockedReason?publicGeminiWarning():(gemini?.error?`AI ngoài tạm không khả dụng; đã dùng báo cáo nội bộ: ${String(gemini.error?.message||'')}`:'Đang dùng báo cáo nội bộ từ CSDL.'),
+    warning:geminiBlocked()?publicGeminiWarning():(gemini?.error?`AI ngoài tạm không khả dụng; đã dùng báo cáo nội bộ: ${String(gemini.error?.message||'')}`:'Đang dùng báo cáo nội bộ từ CSDL.'),
     sources:sourceRows(context),
     scope:context.scope,
     stats:context.stats
@@ -301,7 +306,7 @@ function safeTranscript(original,candidate){
 export async function cleanTranscriptAI(value){
   const original=text(value),local=conservativeTranscript(original),key=text(process.env.GEMINI_API_KEY);
   if(!original)return{original:'',cleaned:'',mode:'local'};
-  if(geminiBlockedReason)return{original,cleaned:local,mode:'local-fallback',warning:publicGeminiWarning()};
+  if(geminiBlocked())return{original,cleaned:local,mode:'local-fallback',warning:publicGeminiWarning()};
   if(!key)return{original,cleaned:local,mode:'local',warning:'Đã làm sạch cục bộ; không cần AI ngoài.'};
   const instruction='Chỉ sửa dấu câu, viết hoa, khoảng trắng và chuẩn hóa SpO2/mmHg/độ C. CẤM đổi, thêm hoặc xóa con số; cấm thêm triệu chứng, chẩn đoán, hành động, tên người hoặc thời gian. Chỉ trả JSON {"cleaned":"..."}.';
   const body={contents:[{role:'user',parts:[{text:`${instruction}\n\nBẢN GỐC:\n${original}`}]}],generationConfig:{temperature:0,maxOutputTokens:500,responseMimeType:'application/json'}};

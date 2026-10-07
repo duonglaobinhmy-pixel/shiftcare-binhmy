@@ -111,8 +111,6 @@ export default function AIChat(){
       <div className="ai-messages">
         {rows.map((m,i)=><div key={i} className={`ai-msg ${m.role}`}>
           <div>{m.content}</div>
-          {m.sources?.length>0&&<small>Nguồn: {m.sources.slice(0,5).map(s=>s.label||s.type).join(' • ')}</small>}
-          {m.scope?.from&&<small>Phạm vi dữ liệu: {m.scope.from}{m.scope.to&&m.scope.to!==m.scope.from?` → ${m.scope.to}`:''}</small>}
           {m.mode&&<small>{m.mode==='gemini'?'Gemini trên dữ liệu CSDL':'Báo cáo nội bộ từ CSDL'}</small>}
           {m.warning&&<small>{m.warning}</small>}
         </div>)}
