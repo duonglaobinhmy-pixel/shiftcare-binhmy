@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Link,useParams} from 'react-router-dom';
 import {api} from '../services/api';
 import {newestFirst,downloadDetailCsv} from '../utils/report-export';
@@ -29,7 +29,36 @@ function Record({row:r,onHistory}){return <article className={`sr-record sr-${to
 export default function ShiftHistory(){
  const {id}=useParams();
  const [history,setHistory]=useState(null);
- async function openHistory(row){setHistory({name:row.residentName,loading:true});try{const r=await api.residentShiftHistory(view?.shift.id||id,row.residentId);setHistory({name:row.residentName,data:r.data,loading:false})}catch(e){setHistory({name:row.residentName,error:e.message,loading:false})}}
+ const historyRequest=useRef(0),dialogRef=useRef(null),closeRef=useRef(null);
+ function closeHistory(){historyRequest.current++;setHistory(null)}
+ async function openHistory(row){
+  const request=++historyRequest.current;
+  setHistory({name:row.residentName,loading:true});
+  try{const r=await api.residentShiftHistory(view?.shift.id||id,row.residentId);if(request===historyRequest.current)setHistory({name:row.residentName,data:r.data,loading:false})}
+  catch(e){if(request===historyRequest.current)setHistory({name:row.residentName,error:e.message,loading:false})}
+ }
+ // The app scrolls inside .app-content-scroll, so locking only body is insufficient.
+ const historyOpen=!!history;
+ useEffect(()=>{
+  if(!historyOpen)return;
+  const focused=document.activeElement;
+  const surfaces=[document.documentElement,document.body,...document.querySelectorAll('.app-content-scroll')];
+  const saved=surfaces.map(el=>({el,value:el.style.getPropertyValue('overflow-y'),priority:el.style.getPropertyPriority('overflow-y')}));
+  surfaces.forEach(el=>el.style.setProperty('overflow-y','hidden','important'));
+  closeRef.current?.focus({preventScroll:true});
+  function keydown(e){
+   if(e.key==='Escape'){e.preventDefault();closeHistory();return}
+   if(e.key!=='Tab')return;
+   const nodes=[...(dialogRef.current?.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')||[])].filter(el=>el.getClientRects().length);
+   const first=nodes[0],last=nodes[nodes.length-1];
+   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}
+   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}
+  }
+  document.addEventListener('keydown',keydown);
+  return()=>{saved.forEach(({el,value,priority})=>value?el.style.setProperty('overflow-y',value,priority):el.style.removeProperty('overflow-y'));document.removeEventListener('keydown',keydown);if(focused?.isConnected)focused.focus({preventScroll:true})};
+ },[historyOpen]);
+ useEffect(()=>{historyRequest.current++;setHistory(null)},[id]);
+
  const [draft,setDraft]=useState({from:today(),to:today(),shiftType:''}),[filter,setFilter]=useState({from:today(),to:today(),shiftType:''}),[rows,setRows]=useState([]),[report,setReport]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0),[resident,setResident]=useState(''),[mode,setMode]=useState('all'),[source,setSource]=useState('current');
  useEffect(()=>{let active=true;setLoading(true);setError('');setReport(null);setRows([]);setResident('');setMode('all');setSource('current');(id?api.shiftHistoryDetail(id):api.shiftHistory(filter)).then(r=>{if(active){id?setReport(r.data):setRows(r.data||[]);setLoading(false)}}).catch(e=>{if(active){setError(e.message);setLoading(false)}});return()=>{active=false}},[id,filter,refresh]);
  const previous=report?.previousShift,view=source==='previous'?previous:report;
@@ -58,6 +87,32 @@ export default function ShiftHistory(){
  <section id="sr-records"><div className="sr-section-head"><div><span className="sr-eyebrow">DIỄN BIẾN CHI TIẾT</span><h2>NCT có gì → xử lý gì → kết quả ra sao?</h2></div><span>{changes.length}/{allChanges.length} ghi nhận · Mới nhất trước · {source==='previous'?'Ca trước':'Ca đang xem'}</span></div><div className="sr-panel op-filter"><label>NCT<select value={resident} onChange={e=>setResident(e.target.value)}><option value="">Tất cả NCT</option>{residentOptions.map(([key,name])=><option key={key} value={key}>{name||key}</option>)}</select></label><label>Nội dung<select value={mode} onChange={e=>setMode(e.target.value)}><option value="all">Tất cả ghi nhận</option><option value="open">Cảnh báo chưa xử lý</option><option value="red">Đỏ chưa xử lý</option><option value="yellow">Vàng chưa xử lý</option><option value="resolved">Cảnh báo đã xử lý</option><option value="followup">Cần bàn giao / theo dõi tiếp</option></select></label><button className="secondary" onClick={()=>{setResident('');setMode('all')}}>Xóa bộ lọc</button></div><div className="sr-timeline">{changes.map(r=><Record key={r.id} row={r} onHistory={openHistory}/>)}</div>{!changes.length&&<Empty title={allChanges.length?'Không có ghi nhận phù hợp bộ lọc':'Ca chưa có ghi nhận diễn biến'}>Chưa có dữ liệu để hiển thị diễn biến, xử lý và kết quả.</Empty>}</section>
  <section className="sr-panel sr-toilets"><div className="sr-section-head"><h2>Tiêu / tiểu trong ca</h2><span>{toilets.length} ghi nhận</span></div>{toilets.length?<div className="sr-toilet-grid">{toilets.map(r=><article key={r.id}><div className="sr-section-head"><b>{r.residentName}</b><small>{clock(r.createdAt)}</small></div><small>{[r.areaName,r.roomName,r.bedName].filter(Boolean).join(' · ')} · {time(r.createdAt)}</small><p><b>Tiêu:</b> {bowel[r.bowelStatus]||r.bowelStatus||'Chưa ghi'}<br/><b>Tiểu:</b> {urine[r.urineStatus]||r.urineStatus||'Chưa ghi'} {r.urineDetail}</p>{r.note&&<p>{r.note}</p>}<small>Người ghi: {r.createdByName||'—'}</small></article>)}</div>:<p className="sr-muted">Chưa có ghi nhận tiêu / tiểu phù hợp.</p>}</section>
  </>}
- {history&&<div className="modal sr-history-modal" role="dialog" aria-modal="true" aria-label="Toàn bộ lịch sử NCT"><div className="modal-card sr-history-card"><div className="sr-section-head"><div><h2>{history.name} · Toàn bộ lịch sử</h2><p>Tất cả ca đã lưu trong cơ sở này · Mới nhất trước</p></div><div className="sr-export-actions">{history.data&&<button className="secondary" onClick={()=>downloadDetailCsv('lich-su-nct.csv',history.data.changes,history.data.toileting,history.data.shifts)}>CSV toàn bộ lịch sử</button>}<button onClick={()=>setHistory(null)}>Đóng</button></div></div>{history.loading&&<p role="status">Đang đọc lịch sử đã lưu…</p>}{history.error&&<p className="error" role="alert">{history.error}</p>}{history.data&&<><p>{history.data.changes.length} diễn biến · {history.data.toileting.length} ghi nhận tiêu / tiểu</p><div className="sr-timeline">{[...history.data.changes].sort(newestFirst).map(r=><div key={r.id}><small>Ca: {history.data.shifts.find(s=>String(s.id)===String(r.shiftId))?.shiftDate} · {shiftLabel(history.data.shifts.find(s=>String(s.id)===String(r.shiftId))?.shiftType)}</small><Record row={r}/></div>)}</div>{history.data.toileting.map(r=><article className="sr-record sr-history-toilet" key={r.id}><b>Tiêu / tiểu · {time(r.createdAt)}</b><p>Tiêu: {bowel[r.bowelStatus]||r.bowelStatus||'—'} · Tiểu: {urine[r.urineStatus]||r.urineStatus||'—'}</p><p>{[r.urineDetail,r.note].filter(Boolean).join(' · ')}</p><small>Người ghi: {r.createdByName||'—'}</small></article>)}</> }</div></div>}
+ {history&&<div className="modal sr-history-modal">
+  <div ref={dialogRef} className="modal-card sr-history-card" role="dialog" aria-modal="true" aria-labelledby="sr-history-title">
+   <header className="modal-head sr-history-head">
+    <div className="sr-history-heading"><h2 id="sr-history-title">{history.name} · Toàn bộ lịch sử</h2><p>Tất cả ca đã lưu trong cơ sở này · Mới nhất trước</p></div>
+    <div className="sr-export-actions">
+     {history.data&&<button className="secondary" onClick={()=>downloadDetailCsv('lich-su-nct.csv',history.data.changes,history.data.toileting,history.data.shifts,{name:history.name})}>CSV toàn bộ lịch sử</button>}
+     <button ref={closeRef} onClick={closeHistory}>Đóng</button>
+    </div>
+    {history.data&&<p className="sr-history-count">{history.data.changes.length} diễn biến · {history.data.toileting.length} ghi nhận tiêu / tiểu</p>}
+   </header>
+   <div className="modal-body sr-history-body" tabIndex={0} aria-label="Danh sách lịch sử ghi nhận" aria-busy={history.loading||false}>
+    {history.loading&&<p role="status">Đang đọc lịch sử đã lưu…</p>}
+    {history.error&&<p className="error" role="alert">{history.error}</p>}
+    {history.data&&<>
+     <div className="sr-timeline">
+      {[...history.data.changes].sort(newestFirst).map(r=>{
+       const shift=history.data.shifts.find(s=>String(s.id)===String(r.shiftId));
+       return <div className="sr-history-entry" key={r.id}><div className="sr-history-shift">Ca: {shift?.shiftDate||'—'} · {shiftLabel(shift?.shiftType)||'—'}</div><Record row={r}/></div>
+      })}
+     </div>
+     {!!history.data.toileting.length&&<section className="sr-history-toilets"><h3>Lịch sử tiêu / tiểu</h3>{[...history.data.toileting].sort(newestFirst).map(r=><article className="sr-record sr-history-toilet" key={r.id}><b>Tiêu / tiểu · {time(r.createdAt)}</b><p>Tiêu: {bowel[r.bowelStatus]||r.bowelStatus||'—'} · Tiểu: {urine[r.urineStatus]||r.urineStatus||'—'}</p><p>{[r.urineDetail,r.note].filter(Boolean).join(' · ')}</p><small>Người ghi: {r.createdByName||'—'}</small></article>)}</section>}
+     {!history.data.changes.length&&!history.data.toileting.length&&<Empty title="Chưa có lịch sử ghi nhận">Không có dữ liệu đã lưu phù hợp.</Empty>}
+    </>}
+   </div>
+  </div>
+ </div>}
+
  </section>;
 }

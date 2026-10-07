@@ -15,7 +15,55 @@
 @media(max-width:560px){.sr-export-actions{width:100%}.sr-export-actions button{flex:1 1 140px}.sr-page .op-filter label{min-width:0;flex-basis:100%}.sr-tabs{width:100%;box-sizing:border-box}.sr-tabs button{min-width:0;white-space:normal}.sr-comparison-row{grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));gap:6px}.sr-page .actions>*{white-space:normal}}
 
 .sr-page .sr-resident-link{background:transparent;color:#175c43;text-align:left;padding:0;font-size:inherit;text-decoration:underline;white-space:normal}
-.sr-history-modal{z-index:1200;padding:12px;box-sizing:border-box}
-.sr-history-card{width:min(1100px,100%);max-width:100%;max-height:90dvh;overflow:auto;padding:20px;box-sizing:border-box}
+/* History dialog: override shared modal rules only inside this dialog.
+   app.css loads after this stylesheet and uses !important for modal sizing. */
+.sr-page .modal.sr-history-modal{
+ z-index:1200;padding:16px!important;overflow:hidden!important;
+ display:grid;place-items:center;overscroll-behavior:none;
+}
+.sr-page .sr-history-modal>.modal-card.sr-history-card{
+ display:flex!important;flex-direction:column!important;gap:0!important;
+ width:min(1180px,100%)!important;max-width:100%!important;
+ max-height:calc(100vh - 32px)!important;max-height:calc(100dvh - 32px)!important;
+ min-height:0;min-width:0;padding:0!important;margin:0!important;
+ overflow:hidden!important;border-radius:18px!important;
+ box-shadow:0 24px 80px #0c261f40;
+}
+.sr-page .sr-history-card>.modal-head.sr-history-head{
+ display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;
+ gap:10px 20px;flex:none;padding:20px 24px 14px;margin:0;
+ border-bottom:1px solid #dce8e0;background:#fff;
+}
+.sr-history-heading{min-width:0}
+.sr-page .sr-history-heading h2{font-size:20px;line-height:1.4;margin:0 0 5px}
+.sr-page .sr-history-heading p{font-size:12px;line-height:1.5;margin:0;color:#657e74}
+.sr-history-head .sr-export-actions{justify-content:flex-end;align-items:start}
+.sr-page .sr-history-count{grid-column:1/-1;margin:0;line-height:1.5;font-size:13px;color:#315b4c}
+.sr-page .sr-history-card>.modal-body.sr-history-body{
+ flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto!important;
+ overflow-x:hidden!important;padding:18px 24px 24px;
+ overscroll-behavior:contain;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch;
+}
+.sr-history-body:focus-visible{outline:2px solid #549b77;outline-offset:-3px}
+.sr-history-body .sr-timeline{gap:20px}
+.sr-history-entry{display:grid;gap:8px;min-width:0}
+.sr-history-shift{font-size:12px;line-height:1.5;color:#657e74;overflow-wrap:anywhere}
+.sr-history-toilets{margin-top:24px;min-width:0}
 .sr-history-toilet{margin-top:12px}
-@media(max-width:560px){.sr-history-card{padding:12px}.sr-history-card .sr-section-head{align-items:flex-start}.sr-history-modal{padding:6px}}
+@media(max-width:1024px){
+ .sr-page .sr-history-card>.modal-head.sr-history-head{padding:16px 18px 12px;gap:10px 14px}
+ .sr-page .sr-history-card>.modal-body.sr-history-body{padding:14px 18px 20px}
+ .sr-history-body .sr-record-flow{grid-template-columns:minmax(0,1fr)}
+ .sr-history-body .sr-record-flow>div+div{border-left:0;border-top:1px solid #e5ede7}
+}
+@media(max-width:560px){
+ .sr-page .modal.sr-history-modal{padding:8px!important}
+ .sr-page .sr-history-modal>.modal-card.sr-history-card{max-height:calc(100vh - 16px)!important;max-height:calc(100dvh - 16px)!important;border-radius:14px!important}
+ .sr-page .sr-history-card>.modal-head.sr-history-head{grid-template-columns:minmax(0,1fr);padding:14px 14px 10px;gap:10px}
+ .sr-page .sr-history-heading h2{font-size:17px}
+ .sr-history-head .sr-export-actions{justify-content:flex-start;width:100%}
+ .sr-history-head .sr-export-actions button{flex:0 1 auto;min-width:0;white-space:normal}
+ .sr-page .sr-history-card>.modal-body.sr-history-body{padding:12px 12px 18px}
+ .sr-history-body .sr-record{padding:14px}
+ .sr-history-body .sr-record-flow>div{padding:12px}
+}
