@@ -1,5 +1,6 @@
 import { shiftPageOptions, paginateShiftRows } from '../services/shift-pagination.service.js';
 import { Router } from 'express';
+import { validateCareText } from '../utils/care-text-validation.js';
 import { staffCalendarReport, staffDayReport } from '../services/staff-report.service.js';
 import { v4 as uuid } from 'uuid';
 import { authenticate, allowRoles, allowPermission } from '../middleware/auth.js';
@@ -369,7 +370,9 @@ router.get('/shifts/:id',allowPermission('SHIFT.VIEW'),async(req,res)=>{
   const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});const residents=s.shiftResidents.filter(x=>x.shiftId===shift.id&&visibleByScope(req.user,x));const changes=s.changeLogs.filter(x=>x.shiftId===shift.id&&!x.deleted).map(withAttention);const toileting=s.toiletingLogs.filter(x=>x.shiftId===shift.id&&!x.deleted);const alertIds=new Set(changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').map(x=>x.residentId));const alerts=residents.filter(x=>alertIds.has(x.residentId));res.json({success:true,data:{shift,residents,changes,toileting,alerts}});
 });
 router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
-  const b=req.body||{},s=await getStore(),shift=s.shifts.find(x=>x.id===b.shiftId);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Ca không hợp lệ hoặc bạn không thuộc ca trực'});const duplicate=b.clientRequestId&&s.changeLogs.find(x=>x.clientRequestId===b.clientRequestId&&x.createdBy===req.user.sub);if(duplicate)return res.json({success:true,data:withAttention(duplicate),duplicate:true});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao nên bị khóa. Chỉ Admin mới được sửa hoặc xóa bản ghi đã có; không được thêm mới.'});
+  const validation=validateCareText(req.body||{});
+  if(!validation.valid)return res.status(422).json({success:false,message:Object.values(validation.errors).join(' '),fields:validation.errors});
+  const b=validation.data,s=await getStore(),shift=s.shifts.find(x=>x.id===b.shiftId);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Ca không hợp lệ hoặc bạn không thuộc ca trực'});const duplicate=b.clientRequestId&&s.changeLogs.find(x=>x.clientRequestId===b.clientRequestId&&x.createdBy===req.user.sub);if(duplicate)return res.json({success:true,data:withAttention(duplicate),duplicate:true});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã ký bàn giao nên bị khóa. Chỉ Admin mới được sửa hoặc xóa bản ghi đã có; không được thêm mới.'});
   const allowedEvents=new Set(['OBSERVATION','FALL','PAIN','MEAL','RESPIRATORY','SKIN','BEHAVIOR','FAMILY','OTHER']);
   const eventCodes=Array.isArray(b.eventCodes)?[...new Set(b.eventCodes)]:[b.eventType==='HOSPITAL'?'OBSERVATION':(b.eventType||'OBSERVATION')];
   if(eventCodes.includes('FALL'))eventCodes.splice(eventCodes.indexOf('FALL'),1),eventCodes.unshift('FALL');
@@ -399,13 +402,14 @@ router.patch('/change-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)=>{
   if(!['IN_FACILITY','HOME_LEAVE','HOSPITAL'].includes(residentStatus)||!['LOW','MEDIUM','HIGH'].includes(priority))return res.status(422).json({success:false,message:'Trạng thái hoặc mức ưu tiên không hợp lệ.'});
   const occurredAt=b.occurredAt?new Date(b.occurredAt):new Date(old.occurredAt);
   if(Number.isNaN(occurredAt.getTime())||occurredAt.getTime()>Date.now()+5*60*1000)return res.status(422).json({success:false,message:'Thời điểm không hợp lệ.'});
-  if(String(b.content??old.content).length>2000||String(b.intervention??old.intervention).length>2000)return res.status(422).json({success:false,message:'Nội dung vượt quá 2000 ký tự.'});
+  const validation=validateCareText({content:Object.prototype.hasOwnProperty.call(b,'content')?b.content:old.content,intervention:Object.prototype.hasOwnProperty.call(b,'intervention')?b.intervention:old.intervention});
+  if(!validation.valid)return res.status(422).json({success:false,message:Object.values(validation.errors).join(' '),fields:validation.errors});
   let vitals=old.vitals,woundImages=old.woundImages;
   try{if(b.vitals!==undefined||b.insulin!==undefined)vitals=normalizeVitals(b.vitals,b.insulin);if(b.woundImages!==undefined)woundImages=sanitizeWoundImages(b.woundImages)}catch(e){return res.status(422).json({success:false,message:e.message})}
   const performerId=b.performerStaffId===undefined?old.performerStaffId:b.performerStaffId;
   const performer=performerId?(shift.assignedStaff||[]).find(x=>String(x.id)===String(performerId)):null;
   if(b.performerStaffId&& !performer)return res.status(422).json({success:false,message:'Người thực hiện không thuộc ca.'});
-  const next={...old,performerStaffId:performerId||null,performerStaffName:performer?.fullName||old.performerStaffName||'',category:categoryCodes[0],categoryCodes,residentStatus,priority,occurredAt:occurredAt.toISOString(),content:String(b.content??old.content).trim(),intervention:String(b.intervention??old.intervention).trim(),requiresHandover:typeof b.requiresHandover==='boolean'?b.requiresHandover:old.requiresHandover,followUp:String(b.followUp??old.followUp).trim(),vitals,woundImages,updatedBy:req.user.sub,updatedByName:req.user.fullName,updatedAt:new Date().toISOString()};
+  const next={...old,performerStaffId:performerId||null,performerStaffName:performer?.fullName||old.performerStaffName||'',category:categoryCodes[0],categoryCodes,residentStatus,priority,occurredAt:occurredAt.toISOString(),content:validation.data.content,intervention:validation.data.intervention,requiresHandover:typeof b.requiresHandover==='boolean'?b.requiresHandover:old.requiresHandover,followUp:String(b.followUp??old.followUp).trim(),vitals,woundImages,updatedBy:req.user.sub,updatedByName:req.user.fullName,updatedAt:new Date().toISOString()};
   if(b.insulin!==undefined)next.insulin=b.insulin;
   next.attentionLevel=attentionLevel(next);
   next.attentionStatus=next.attentionLevel?(old.attentionStatus==='RESOLVED'&&old.attentionLevel===next.attentionLevel?'RESOLVED':'OPEN'):null;
