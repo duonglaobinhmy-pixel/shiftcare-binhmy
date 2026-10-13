@@ -286,6 +286,38 @@ router.post('/residents/:residentId/ensure-open-shift',allowRoles('ADMIN','CAREG
   res.json({success:true,data:shift});
 });
 
+// Lightweight alert counter: no dashboard bundle, media signing or daily reports.
+// Cached only per server process and authorization scope, max 5 seconds.
+const alertCountsCache=new Map();
+router.get('/dashboard/alert-counts',allowPermission('DASHBOARD.VIEW'),async(req,res)=>{
+  const scope=req.user.role==='ADMIN'?'ADMIN':`BRANCH:${String(req.user.branchId||'')}`;
+  if(scope==='BRANCH:')return res.status(403).json({success:false,message:'Tài khoản chưa có phạm vi cơ sở.'});
+  const now=Date.now(), cached=alertCountsCache.get(scope);
+  if(cached && cached.expiresAt>now)return res.json({success:true,data:cached.data});
+  if(cached?.promise)return res.json({success:true,data:await cached.promise});
+  const promise=(async()=>{
+    const db=getPool();
+    if(db){
+      const params=req.user.role==='ADMIN'?[]:[String(req.user.branchId)];
+      const where=`c.deleted=FALSE AND c.attention_level IN ('RED','YELLOW') AND COALESCE(c.attention_status,'OPEN')<>'RESOLVED' ${params.length?'AND c.branch_id=$1':''}`;
+      // Match the dashboard rule: one active alert per resident, RED outranks YELLOW.
+      const result=await db.query(`SELECT COUNT(*) FILTER (WHERE level='RED')::int AS red, COUNT(*) FILTER (WHERE level='YELLOW')::int AS yellow FROM (SELECT DISTINCT ON (c.branch_id,c.bcare_resident_id) c.attention_level AS level FROM care_records c WHERE ${where} ORDER BY c.branch_id,c.bcare_resident_id, CASE c.attention_level WHEN 'RED' THEN 0 ELSE 1 END,c.occurred_at DESC) active`,params);
+      return {openRed:Number(result.rows[0]?.red||0),openYellow:Number(result.rows[0]?.yellow||0)};
+    }
+    const store=await getStore();
+    const selected=prioritizeOutstanding(store.changeLogs.filter(x=>!x.deleted&&visibleByScope(req.user,x)));
+    return {openRed:selected.filter(x=>x.attentionLevel==='RED').length,openYellow:selected.filter(x=>x.attentionLevel==='YELLOW').length};
+  })();
+  alertCountsCache.set(scope,{promise,expiresAt:0});
+  try{
+    const data=await promise;
+    alertCountsCache.set(scope,{data,expiresAt:Date.now()+5000});
+    if(alertCountsCache.size>100)for(const [key,value] of alertCountsCache)if(value.expiresAt<Date.now())alertCountsCache.delete(key);
+    res.set('Cache-Control','private, no-store');
+    return res.json({success:true,data});
+  }catch(error){alertCountsCache.delete(scope);throw error}
+});
+
 router.get('/dashboard',allowPermission('DASHBOARD.VIEW'),async(req,res)=>{
   const date=String(req.query.date||todayVN());
   const fast=await getDashboardBundleFast(req.user,date);
@@ -295,7 +327,7 @@ router.get('/dashboard',allowPermission('DASHBOARD.VIEW'),async(req,res)=>{
   const residents=s.shiftResidents.filter(x=>ids.has(x.shiftId)&&visibleByScope(req.user,x));
   const changes=(fast?s.changeLogs:s.changeLogs.filter(x=>!x.deleted&&visibleByScope(req.user,x)&&dateVN(x.occurredAt||x.createdAt)===date)).map(withAttention);
   const handovers=(s.handovers||[]).filter(x=>ids.has(x.shiftId));
-  const allVisibleChanges=fast?fast.outstanding.map(withAttention):base.changeLogs.filter(x=>!x.deleted&&visibleByScope(req.user,x)).map(withAttention);
+  const allVisibleChanges=fast?fast.outstanding.map(withAttention):s.changeLogs.filter(x=>!x.deleted&&visibleByScope(req.user,x)).map(withAttention);
   const outstanding=prioritizeOutstanding(allVisibleChanges);
   const byCategory=changes.reduce((a,x)=>{for(const code of new Set(x.categoryCodes?.length?x.categoryCodes:[x.category]))a[code]=(a[code]||0)+1;return a},{});
   const shiftStatus=Object.entries(shifts.reduce((a,x)=>(a[x.status]=(a[x.status]||0)+1,a),{})).map(([status,count])=>({status,count}));
