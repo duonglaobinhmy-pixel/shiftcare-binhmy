@@ -647,3 +647,25 @@ export async function deleteShiftFast(user,id){
   invalidateStoreCache();
   return result;
 }
+
+// History stays separate from new shift observations and is fetched 20 rows at a time.
+export async function getResidentCareHistoryFast(user,shiftId,residentId,{offset,limit}) {
+  if(!await ready())return null;
+  const db=getPool();
+  const sr=await db.query(`SELECT s.* FROM shifts s WHERE s.id=$1 AND EXISTS(
+    SELECT 1 FROM shift_residents r WHERE r.shift_id=s.id AND r.bcare_resident_id=$2 AND r.branch_id=s.branch_id)`,[shiftId,residentId]);
+  const shift=sr.rows[0]&&mapShiftRow(sr.rows[0]);
+  if(!shift||!scopeShift(user,shift))return {notFound:true};
+  const cr=await db.query(`SELECT c.*,s.shift_date::text AS source_date,s.shift_type AS source_type,
+    (SELECT array_agg(category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,
+    v.pulse,v.temperature,v.bp_sys,v.bp_dia,v.spo2,v.respiratory_rate,v.concern,v.alert_level,v.alerts,v.urgent,v.blood_glucose,v.insulin_dose_units
+    FROM care_records c JOIN shifts s ON s.id=c.shift_id LEFT JOIN care_record_vitals v ON v.care_record_id=c.id
+    WHERE c.deleted=FALSE AND c.branch_id=$1 AND s.branch_id=$1 AND c.bcare_resident_id=$2 AND
+      (s.id=$3 OR s.shift_date<$4::date OR (s.shift_date=$4::date AND
+        CASE s.shift_type WHEN 'MORNING' THEN 0 WHEN 'AFTERNOON' THEN 1 WHEN 'NIGHT' THEN 2 ELSE 99 END <
+        CASE $5::text WHEN 'MORNING' THEN 0 WHEN 'AFTERNOON' THEN 1 WHEN 'NIGHT' THEN 2 ELSE -1 END))
+    ORDER BY c.occurred_at DESC,c.id COLLATE "C" ASC LIMIT $6 OFFSET $7`,
+    [shift.branchId,residentId,shift.id,shift.shiftDate,shift.shiftType,limit+1,offset]);
+  return {items:cr.rows.slice(0,limit).map(x=>({...mapCareRow(x),image:undefined,sourceShiftDate:x.source_date,sourceShiftType:x.source_type})),
+    nextOffset:cr.rows.length>limit?offset+limit:null};
+}

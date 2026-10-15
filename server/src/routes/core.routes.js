@@ -13,7 +13,7 @@ import { getPool } from '../services/db.service.js';
 import { audit } from '../services/audit.service.js';
 import { notifyUrgentCreated,notifyUrgentResolved } from '../services/telegram.service.js';
 import { sanitizeWoundImages } from '../services/media-retention.service.js';
-import { getStaffOptionsFast,getShiftsFast,getShiftsPageFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,getResidentVitalsReportFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
+import { getResidentCareHistoryFast,getStaffOptionsFast,getShiftsFast,getShiftsPageFast,getShiftDetailFast,getReportBundleFast,getDashboardBundleFast,getStaffReportBundleFast,getStaffCalendarFast,getStaffDayDetailFast,getResidentVitalsReportFast,createShiftFast,updateShiftStaffFast,replaceShiftRosterFast,deleteShiftFast } from '../services/fast-query.service.js';
 
 const router = Router();
 // Express 4 does not forward rejected async route handlers to the JSON error middleware.
@@ -414,6 +414,22 @@ router.post('/shifts/:id/repair-unconfirmed',allowRoles('ADMIN'),async(req,res)=
 router.get('/shifts/:id',allowPermission('SHIFT.VIEW'),async(req,res)=>{
   const fast=await getShiftDetailFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});const hr=await getPool().query('SELECT id,shift_id,confirmed_at,confirmed_by_name_cache,received_at FROM handovers WHERE shift_id=$1',[fast.shift.id]);const accessStore={handovers:hr.rows.map(h=>({id:h.id,shiftId:h.shift_id,confirmedAt:h.confirmed_at,confirmedByName:h.confirmed_by_name_cache,receivedAt:h.received_at}))};return res.json({success:true,data:{...fast,workAccess:shiftWorkAccess(req.user,accessStore,fast.shift)}});}
   const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực này'});const residents=s.shiftResidents.filter(x=>x.shiftId===shift.id&&visibleByScope(req.user,x));const changes=s.changeLogs.filter(x=>x.shiftId===shift.id&&!x.deleted).map(withAttention);const toileting=s.toiletingLogs.filter(x=>x.shiftId===shift.id&&!x.deleted);const alertIds=new Set(changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').map(x=>x.residentId));const alerts=residents.filter(x=>alertIds.has(x.residentId));res.json({success:true,data:{shift,residents,changes,toileting,alerts,carriedForward:carryForward({...s,changeLogs:s.changeLogs.map(withAttention)},shift,residents),workAccess:shiftWorkAccess(req.user,s,shift)}});
+});
+router.get('/shifts/:id/residents/:residentId/history',allowPermission('CARE.VIEW'),async(req,res)=>{
+  const offset=Number(req.query.offset||0),limit=20;
+  if(!Number.isSafeInteger(offset)||offset<0||offset>1000000)return res.status(422).json({success:false,message:'Vị trí lịch sử không hợp lệ.'});
+  const fast=await getResidentCareHistoryFast(req.user,req.params.id,req.params.residentId,{offset,limit});
+  if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy NCT trong ca được phép xem.'});return res.json({success:true,data:fast});}
+  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);
+  const roster=shift&&s.shiftResidents.some(x=>x.shiftId===shift.id&&String(x.residentId)===req.params.residentId&&visibleByScope(req.user,x));
+  if(!shift||!canAccessShift(req.user,shift)||!roster)return res.status(404).json({success:false,message:'Không tìm thấy NCT trong ca được phép xem.'});
+  const shifts=new Map(s.shifts.map(x=>[String(x.id),x]));
+  const rows=s.changeLogs.filter(x=>!x.deleted&&String(x.residentId)===req.params.residentId&&String(x.branchId)===String(shift.branchId)&&
+    (String(x.shiftId)===String(shift.id)||isEarlierShift(shifts.get(String(x.shiftId)),shift)))
+    .sort((a,b)=>(Date.parse(b.occurredAt||b.createdAt)||0)-(Date.parse(a.occurredAt||a.createdAt)||0)||String(a.id).localeCompare(String(b.id),'en'));
+  const items=rows.slice(offset,offset+limit).map(x=>({...withAttention(x),woundImages:undefined,image:undefined,
+    sourceShiftDate:shifts.get(String(x.shiftId))?.shiftDate,sourceShiftType:shifts.get(String(x.shiftId))?.shiftType}));
+  res.json({success:true,data:{items,nextOffset:offset+limit<rows.length?offset+limit:null}});
 });
 router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
   const validation=validateCareText(req.body||{});
