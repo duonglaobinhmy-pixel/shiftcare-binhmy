@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import ReportTrend from '../components/ReportTrend';
 import { api } from '../services/api';
 import { newestFirst, downloadDetailCsv } from '../utils/report-export';
 
@@ -53,7 +54,8 @@ function vitalText(v) {
 
 export default function ResidentReportDetail() {
   const { residentId } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams,setSearchParams] = useSearchParams();
+  const [vitalKey,setVitalKey]=useState('temperature');
   const from = searchParams.get('from') || '';
   const to = searchParams.get('to') || from;
   const branchId = searchParams.get('branchId') || '';
@@ -136,6 +138,9 @@ export default function ResidentReportDetail() {
   }, [data, reportVitalHistory]);
 
   const summary = data?.summary || {};
+  const metrics={temperature:['Nhiệt độ','°C'],pulse:['Mạch','lần/phút'],bpSys:['HA tâm thu','mmHg'],bpDia:['HA tâm trương','mmHg'],spo2:['SpO₂','%'],respiratoryRate:['Nhịp thở','lần/phút'],bloodGlucose:['Đường huyết','mg/dL']};
+  const vitalTrend=[...reportVitalHistory].reverse().map(c=>({at:c.occurredAt||c.createdAt,label:formatDateTime(c.occurredAt||c.createdAt),value:c.vitals?.[vitalKey]??null}));
+  function changePeriod(key,value){const q=new URLSearchParams(searchParams);q.set(key,value);setSearchParams(q,{replace:true});setAllHistory(false);}
   const rangeLabel = allHistory ? 'Toàn bộ lịch sử đã lưu' : from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
 
   return (
@@ -154,6 +159,7 @@ export default function ResidentReportDetail() {
         </div>
       </header>
 
+      <div className="panel"><h2>Thời gian theo dõi</h2><p>Thời điểm ghi nhận giữ theo lúc thực hiện, giờ Việt Nam. Chọn khoảng xem; việc này không xóa hoặc đổi thời gian lưu dữ liệu.</p><div className="form-grid"><label>Từ ngày<input type="date" value={from} onChange={e=>changePeriod('from',e.target.value)}/></label><label>Đến ngày<input type="date" value={to} onChange={e=>changePeriod('to',e.target.value)}/></label></div></div>
       {err && <div className="error">{err}</div>}
 
       {loading ? (
@@ -174,6 +180,8 @@ export default function ResidentReportDetail() {
             <div className="stat"><b>{summary.toiletingAbnormal || 0}</b><span>Tiêu/tiểu lưu ý</span></div>
           </div>
 
+          <div className="panel"><label>Chỉ số theo dõi<select value={vitalKey} onChange={e=>setVitalKey(e.target.value)}>{Object.entries(metrics).map(([key,[label]])=><option key={key} value={key}>{label}</option>)}</select></label></div>
+          <ReportTrend title={`Diễn tiến ${metrics[vitalKey][0]}`} description="Các điểm đo thực tế theo thời gian; thiếu chỉ số để trống, không tự điền 0." rows={vitalTrend} unit={metrics[vitalKey][1]} series={[{key:'value',label:metrics[vitalKey][0],color:'#2563eb'}]}/>
           <div className="panel resident-vitals-report">
             <div className="panel-title">
               <div>
@@ -261,7 +269,7 @@ export default function ResidentReportDetail() {
                             <p>{c.content || '—'}</p>
                             {!!vitals.length && <div className="resident-vital-chips">{vitals.map(v => <span key={v}>{v}</span>)}</div>}
                             {c.intervention && <div className="resident-event-action"><b>Xử lý:</b> {c.intervention}</div>}
-                            {c.resolutionNote && <div className="resident-event-action"><b>Kết quả:</b> {c.resolutionNote}</div>}
+                            {c.resolutionNote && <div className="resident-event-action"><b>Kết quả:</b> {c.resolutionNote} · {c.resolvedByName||'—'} · {formatDateTime(c.resolvedAt||c.attentionResolvedAt)}</div>}
                             {c.followUp && <div className="resident-event-action"><b>Theo dõi tiếp:</b> {c.followUp}</div>}
                             {c.requiresHandover && <div className="resident-handover-chip">↗ Cần bàn giao ca sau</div>}
                             <small>Người ghi: {c.createdByName || '—'}</small>

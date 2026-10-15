@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { newestFirst, downloadDetailCsv } from '../utils/report-export';
+import ReportTrend, {dayRows} from '../components/ReportTrend';
 import { useAuth } from '../context/AuthContext';
 
 const VN_TZ = 'Asia/Ho_Chi_Minh';
@@ -105,6 +106,17 @@ export default function Reports() {
       .sort((a, b) => newestFirst({...a, occurredAt:a.lastEventAt}, {...b, occurredAt:b.lastEventAt}));
   }, [data, q, riskFilter]);
 
+  const trend=useMemo(()=>{
+    const days=dayRows(from,to).map(row=>({...row,count:0,red:0,yellow:0}));
+    const map=new Map(days.map(row=>[row.date,row]));
+    for(const change of data?.details||[]){
+      const date=new Date(change.occurredAt||change.createdAt);
+      if(!Number.isFinite(date.getTime()))continue;
+      const row=map.get(new Intl.DateTimeFormat('en-CA',{timeZone:VN_TZ}).format(date));
+      if(row){row.count++;if(change.attentionLevel==='RED')row.red++;if(change.attentionLevel==='YELLOW')row.yellow++;}
+    }
+    return days;
+  },[data,from,to]);
   const outstanding = useMemo(() => (data?.outstanding || []).slice(0, 8), [data]);
 
   function openResident(row) {
@@ -184,6 +196,7 @@ export default function Reports() {
             <div className="stat success-stat"><b>{data?.resolutionRate == null ? '—' : `${data.resolutionRate}%`}</b><span>Tỷ lệ xử lý</span></div>
           </div>
 
+          <ReportTrend title="Biến động theo ngày" description="Số lượt phát sinh trong kỳ theo giờ Việt Nam. Đỏ/Vàng là mức khi ghi nhận; các ô phía trên là số NCT còn cảnh báo hiện tại." rows={trend} series={[{key:'count',label:'Lượt ghi nhận',color:'#2563eb'},{key:'red',label:'Lượt Đỏ',color:'#dc2626'},{key:'yellow',label:'Lượt Vàng',color:'#a16207'}]}/>
           {isAdmin && !branchId && branchSummaries.length > 1 && (
             <div className="panel branch-overview-panel">
               <div className="panel-title">
@@ -287,7 +300,7 @@ export default function Reports() {
                     ) : x.yellowOpen ? (
                       <span className="attention-status YELLOW">🟡 {x.yellowOpen}</span>
                     ) : (
-                      <span className="resident-ok">Ổn</span>
+                      <span className="resident-ok">Không có cảnh báo mở</span>
                     )}
                   </div>
 

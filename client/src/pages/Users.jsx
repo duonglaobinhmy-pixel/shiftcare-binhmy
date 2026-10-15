@@ -76,7 +76,7 @@ const emptyAccountForm = () => ({
 });
 
 export default function Users() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
@@ -101,7 +101,7 @@ export default function Users() {
     try {
       const [b, u] = await Promise.all([
         api.branches(),
-        api.users(),
+        isAdmin ? api.users() : Promise.resolve({data:[]}),
       ]);
       setBranches(b.data || []);
       setRows(u.data || []);
@@ -335,17 +335,17 @@ export default function Users() {
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </label>
-        <form className="inline-form" onSubmit={addStaff}>
+        {can('USER.CREATE')&&<form className="inline-form" onSubmit={addStaff}>
           <label>Mã nhân viên *<input value={staffForm.employeeCode} onChange={e => setStaffForm({ ...staffForm, employeeCode: e.target.value })} /></label>
           <label>Họ tên *<input value={staffForm.fullName} onChange={e => setStaffForm({ ...staffForm, fullName: e.target.value })} /></label>
           <button disabled={staffBusy || !staffBranchId}>{staffBusy ? 'Đang lưu...' : '+ Thêm nhân viên'}</button>
           <button type="button" className="secondary" disabled={staffBusy || !staffBranchId} onClick={() => staffFileRef.current?.click()}>Tải Excel</button>
           <input ref={staffFileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={importStaffFile} />
-        </form>
+        </form>}
       </div>
       {staffLoading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải nhân viên...</b></div></div> :
         staffBranchId && <div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
-          {staffRows.map(x => <tr key={x.id}><td><b>{x.employeeCode}</b></td><td>{x.fullName}</td><td><span className={`status-pill ${x.active !== false ? 'on' : 'off'}`}>{x.active !== false ? 'Đang làm việc' : 'Ngừng làm việc'}</span></td><td><div className="actions"><button className="secondary" onClick={() => editStaff(x)}>Sửa</button><button className="danger" onClick={() => removeStaff(x)}>Xóa</button></div></td></tr>)}
+          {staffRows.map(x => <tr key={x.id}><td><b>{x.employeeCode}</b></td><td>{x.fullName}</td><td><span className={`status-pill ${x.active !== false ? 'on' : 'off'}`}>{x.active !== false ? 'Đang làm việc' : 'Ngừng làm việc'}</span></td><td><div className="actions">{can('USER.UPDATE')&&<button className="secondary" onClick={() => editStaff(x)}>Sửa</button>}{can('USER.DELETE')&&<button className="danger" onClick={() => removeStaff(x)}>Xóa</button>}</div></td></tr>)}
           {!staffRows.length && <tr><td colSpan="4">Chưa có nhân viên trong cơ sở.</td></tr>}
         </tbody></table></div>}
     </div>

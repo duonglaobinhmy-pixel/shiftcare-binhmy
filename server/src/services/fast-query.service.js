@@ -1,3 +1,4 @@
+import { carryForward } from './carry-forward.service.js';
 import { shiftPageMeta } from './shift-pagination.service.js';
 import { v4 as uuid } from 'uuid';
 import { getPool, middlewareSchemaReady, withTransaction } from './db.service.js';
@@ -133,14 +134,26 @@ export async function getShiftDetailFast(user,id){
   const changes=cr.rows.map(mapCareRow).map(x=>({...x,eventCodes:eventMap.get(x.id)||[x.eventType],categoryCodes:categoryMap.get(x.id)||[x.category],woundImages:imgMap.get(x.id)||[]}));
   const toileting=tr.rows.map(mapToiletRow);
   const openIds=new Set(changes.filter(x=>x.attentionLevel&&x.attentionStatus==='OPEN').map(x=>x.residentId));
-  return {shift,residents,changes,toileting,alerts:residents.filter(x=>openIds.has(x.residentId))};
+  // Fetch pending source records only; no full-store load on the PostgreSQL fast path.
+  const pending=await db.query(`SELECT c.*,
+    (SELECT array_agg(category_code) FROM care_record_categories WHERE care_record_id=c.id) AS category_codes,
+    s.shift_date::text AS source_date,s.shift_type AS source_type
+    FROM care_records c JOIN shifts s ON s.id=c.shift_id
+    WHERE c.branch_id=$1 AND c.shift_id<>$2 AND c.deleted=FALSE
+      AND s.shift_date<=$3::date AND c.bcare_resident_id=ANY($4::text[])
+      AND (c.attention_level IN ('RED','YELLOW') OR c.requires_handover=TRUE)
+      AND COALESCE(c.attention_status,'OPEN')<>'RESOLVED'
+      AND COALESCE(c.legacy_extra->>'followUpStatus','OPEN')<>'RESOLVED'`,
+    [shift.branchId,shift.id,shift.shiftDate,residents.map(row=>String(row.residentId))]);
+  const carriedForward=carryForward({shifts:pending.rows.map(row=>({id:row.shift_id,branchId:row.branch_id,shiftDate:row.source_date,shiftType:row.source_type})),changeLogs:pending.rows.map(mapCareRow)},shift,residents);
+  return {shift,residents,changes,toileting,alerts:residents.filter(x=>openIds.has(x.residentId)),carriedForward};
 }
 
 function mapCareRow(x){
   const vitals=(x.pulse!=null||x.temperature!=null||x.bp_sys!=null||x.bp_dia!=null||x.spo2!=null||x.respiratory_rate!=null||x.blood_glucose!=null||x.insulin_dose_units!=null||x.alert_level)?{
     pulse:x.pulse==null?null:Number(x.pulse),temperature:x.temperature==null?null:Number(x.temperature),bpSys:x.bp_sys==null?null:Number(x.bp_sys),bpDia:x.bp_dia==null?null:Number(x.bp_dia),spo2:x.spo2==null?null:Number(x.spo2),respiratoryRate:x.respiratory_rate==null?null:Number(x.respiratory_rate),bloodGlucose:x.blood_glucose==null?null:Number(x.blood_glucose),insulinDoseUnits:x.insulin_dose_units==null?null:Number(x.insulin_dose_units),concern:!!x.concern,alertLevel:x.alert_level||'NORMAL',alerts:x.alerts||[],urgent:x.urgent||null
   }:null;
-  return {id:x.id,performerStaffId:x.legacy_extra?.performerStaffId||null,performerStaffName:x.legacy_extra?.performerStaffName||'',clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:x.category_codes?.length?x.category_codes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:x.legacy_extra?.eventCodes?.length?x.legacy_extra.eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
+  return {resolutionNote:x.legacy_extra?.resolutionNote||'',resolvedByName:x.legacy_extra?.resolvedByName||'',resolvedAt:x.legacy_extra?.resolvedAt||iso(x.attention_resolved_at),resolvedInShiftId:x.legacy_extra?.resolvedInShiftId||null,followUpStatus:x.legacy_extra?.followUpStatus||null,id:x.id,performerStaffId:x.legacy_extra?.performerStaffId||null,performerStaffName:x.legacy_extra?.performerStaffName||'',clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:x.category_codes?.length?x.category_codes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:x.legacy_extra?.eventCodes?.length?x.legacy_extra.eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
 }
 function mapToiletRow(x){return{id:x.id,clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',bowelStatus:x.bowel_status,urineStatus:x.urine_status,urineDetail:x.urine_detail||'',note:x.note||'',branchId:x.branch_id,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedAt:iso(x.updated_at)}}
 

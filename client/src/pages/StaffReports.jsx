@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import ReportTrend, {dayRows} from '../components/ReportTrend';
+import {useAuth} from '../context/AuthContext';
 import { api } from '../services/api';
 
 const VN_TZ = 'Asia/Ho_Chi_Minh';
@@ -37,10 +39,12 @@ function buildCalendarCells(month) {
 
 export default function StaffReports() {
   const navigate = useNavigate();
+  const {user}=useAuth();
+  const [staffData,setStaffData]=useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [month, setMonth] = useState(searchParams.get('month') || monthOf(today()));
-  const [branchId, setBranchId] = useState(searchParams.get('branchId') || '');
+  const [branchId, setBranchId] = useState(user.role==='ADMIN'?(searchParams.get('branchId')||''):(user.branchId||''));
   const [staffId, setStaffId] = useState(searchParams.get('staffId') || '');
   const [branches, setBranches] = useState([]);
   const [data, setData] = useState(null);
@@ -61,9 +65,10 @@ export default function StaffReports() {
     let alive = true;
     setLoading(true);
     setErr('');
-    api.staffCalendar(bounds.from, bounds.to, branchId, staffId)
-      .then(r => {
-        if (alive) setData(r.data || null);
+    setData(null);setStaffData(null);
+    Promise.all([api.staffCalendar(bounds.from,bounds.to,branchId,staffId),api.staffReports(bounds.from,bounds.to,branchId)])
+      .then(([r,staff]) => {
+        if(alive){setData(r.data||null);setStaffData(staff.data||null);}
       })
       .catch(e => {
         if (alive) setErr(e.message);
@@ -82,6 +87,15 @@ export default function StaffReports() {
     setSearchParams(q, { replace: true });
   }, [month, branchId, staffId, setSearchParams]);
 
+  const staffStats=useMemo(()=>(staffData?.staffDetails||[]).filter(p=>!staffId||String(p.id)===String(staffId)).map(p=>{
+    const shifts=(p.shifts||[]).filter(s=>s.shiftDate>=bounds.from&&s.shiftDate<=bounds.to);
+    return {...p,shiftCount:shifts.length,dayCount:shifts.filter(s=>s.shiftType==='MORNING').length,nightCount:shifts.filter(s=>s.shiftType==='NIGHT').length};
+  }),[staffData,staffId,bounds]);
+  const staffingTrend=useMemo(()=>dayRows(bounds.from,bounds.to).map(row=>{
+    const shifts=(staffData?.calendar||[]).filter(s=>s.shiftDate===row.date);
+    const count=type=>new Set(shifts.filter(s=>s.shiftType===type).flatMap(s=>(s.staff||[]).filter(p=>!staffId||String(p.id)===String(staffId)).map(p=>String(p.id)))).size;
+    return {...row,day:count('MORNING'),night:count('NIGHT')};
+  }),[staffData,bounds,staffId]);
   const summary = data?.summary || {};
   const staffDirectory = data?.staffDirectory || [];
 
@@ -98,7 +112,7 @@ export default function StaffReports() {
       <header className="page-head report-page-head">
         <div>
           <h1>Lịch ca nhân viên</h1>
-          <p>Chỉ tải số tổng theo tháng. Bấm vào một ngày để mở trang chi tiết riêng.</p>
+          <p>Nhân sự theo ngày/đêm và số ca của từng người. Lịch bên dưới mở chi tiết mỗi ngày.</p>
         </div>
         <div className="actions report-top-actions">
           <button className="secondary" onClick={() => window.print()}>In / PDF</button>
@@ -113,7 +127,7 @@ export default function StaffReports() {
           </label>
           <label>
             Cơ sở
-            <select value={branchId} onChange={e => { setBranchId(e.target.value); setStaffId(''); }}>
+            <select disabled={user.role!=='ADMIN'} value={branchId} onChange={e => { setBranchId(e.target.value); setStaffId(''); }}>
               <option value="">Tất cả cơ sở</option>
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
@@ -151,12 +165,13 @@ export default function StaffReports() {
           <div className="stats report-kpis calendar-kpis">
             <div className="stat"><b>{summary.shiftCount || 0}</b><span>Ca trong tháng</span></div>
             <div className="stat"><b>{summary.staffCount || 0}</b><span>Nhân viên có trực</span></div>
-            <div className="stat"><b>{summary.changeCount || 0}</b><span>Biến động</span></div>
-            <div className="stat"><b>{summary.toiletingCount || 0}</b><span>Tiêu / tiểu</span></div>
-            <div className="stat danger"><b>{summary.redCount || 0}</b><span>Cảnh báo đỏ</span></div>
+            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.dayCount,0)}</b><span>Lượt nhân sự trực ngày</span></div>
+            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.nightCount,0)}</b><span>Lượt nhân sự trực đêm</span></div>
             <div className="stat success-stat"><b>{summary.handoverDone || 0}</b><span>Đã bàn giao</span></div>
           </div>
 
+          <ReportTrend title="Số nhân sự theo ngày / đêm" description="Mỗi nhân sự tính một lần cho mỗi loại ca trong ngày, theo ngày bắt đầu ca. Không đếm lại ca đêm khi có ghi nhận sau 0 giờ." rows={staffingTrend} unit="người" series={[{key:'day',label:'Trực ngày',color:'#2563eb'},{key:'night',label:'Trực đêm',color:'#7c3aed'}]}/>
+          <div className="panel"><h2>Số ca từng nhân sự</h2><p>Tính theo phân công và ngày bắt đầu ca trong tháng; số ca không phải số lượt ghi nhận.</p><div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Cơ sở</th><th>Tổng ca</th><th>Ca ngày</th><th>Ca đêm</th></tr></thead><tbody>{staffStats.map(p=><tr key={p.id}><td>{p.employeeCode}</td><td>{p.fullName}</td><td>{p.branchName}</td><td>{p.shiftCount}</td><td>{p.dayCount}</td><td>{p.nightCount}</td></tr>)}{!staffStats.length&&<tr><td colSpan="6">Không có phân công trong kỳ.</td></tr>}</tbody></table></div></div>
           <div className="panel staff-month-calendar-panel">
             <div className="panel-title">
               <div>

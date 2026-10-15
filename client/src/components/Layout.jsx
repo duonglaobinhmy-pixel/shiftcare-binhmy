@@ -10,10 +10,10 @@ const MENU_ITEMS=[
   {to:'/shifts',label:'Ca chăm sóc',permission:'SHIFT.VIEW',icon:'◷'},
   {to:'/shift-history',label:'Báo cáo từng ca',permission:'SHIFT.VIEW',icon:'▤'},
   // {to:'/residents',label:'Nhập nhanh NCT',permission:'CARE.VIEW',icon:'+'},
-  {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤'},
+  {to:'/reports',label:'Báo cáo biến động',permission:'REPORT.VIEW',icon:'▤',end:true},
   {to:'/reports/staff',label:'Báo cáo ca nhân viên',permission:'REPORT.VIEW',icon:'♙'},
   {to:'/cskh',label:'Chăm sóc khách hàng',permission:'CSKH.VIEW',icon:'♡'},
-  {to:'/users',label:'Tài khoản',permission:'USER.VIEW',icon:'♟'},
+  {to:'/users',label:'Tài khoản & nhân sự',permission:'USER.VIEW',icon:'♟'},
   // {to:'/system',label:'Kết nối BCARE',permission:'SYSTEM.VIEW',icon:'↔'}
 ];
 
