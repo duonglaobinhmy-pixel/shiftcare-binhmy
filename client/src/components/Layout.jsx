@@ -20,7 +20,7 @@ const MENU_ITEMS=[
 export default function Layout(){
   const {user,logout,can}=useAuth();
   const [collapsed,setCollapsed]=useState(()=>{try{return window.matchMedia?.('(max-width: 900px)')?.matches||localStorage.getItem('shiftcare_sidebar_collapsed')==='1'}catch{return false}});
-  const visibleMenus=useMemo(()=>MENU_ITEMS.filter(item=>{try{return can(item.permission)}catch{return true}}),[can]);
+  const visibleMenus=useMemo(()=>MENU_ITEMS.filter(item=>!(user?.role==='CSKH'&&item.to==='/cskh')&&can(item.permission)).map(item=>user?.role==='CSKH'&&item.to==='/users'?{...item,label:'Nhân sự cơ sở'}:item),[can,user?.role]);
   useEffect(()=>{try{localStorage.setItem('shiftcare_sidebar_collapsed',collapsed?'1':'0')}catch{}},[collapsed]);
   useEffect(()=>{
     const media=window.matchMedia?.('(max-width: 900px)');

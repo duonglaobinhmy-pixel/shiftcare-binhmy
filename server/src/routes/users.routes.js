@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const router = Router();
-router.use(authenticate, allowRoles('ADMIN', 'BRANCH_DIRECTOR'));
+router.use(authenticate);
 const execFileAsync = promisify(execFile);
 
 function publicUser(u) {
@@ -79,13 +79,18 @@ async function parseEmployeeWorkbook(fileBase64) {
   } finally { await fs.rm(tempPath, { force: true }).catch(() => {}); }
 }
 
-router.get('/staff', allowPermission('USER.VIEW'), async (req, res) => {
+router.get('/staff', allowRoles('ADMIN','BRANCH_DIRECTOR','CSKH'), allowPermission('USER.VIEW'), async (req, res) => {
+  if(req.user.role==='CSKH'&&req.query.branchId&&String(req.query.branchId)!==String(req.user.branchId))return res.status(403).json({success:false,message:'Chỉ được xem nhân sự của cơ sở được giao.'});
   const branchId = req.user.role === 'ADMIN' ? String(req.query.branchId || '') : String(req.user.branchId || '');
   if (!branchId) return res.status(400).json({ success: false, message: 'Vui lòng chọn cơ sở.' });
   const store = await getStore();
   const rows = (store.staffMembers || []).filter(x => String(x.branchId) === String(branchId) && !x.deleted).map(x=>({...x,active:x.active!==false})).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'vi'));
-  res.json({ success: true, data: rows });
+  const data=req.user.role==='CSKH'?rows.map(x=>({id:x.id,employeeCode:x.employeeCode,fullName:x.fullName,branchId:x.branchId,branchName:x.branchName||'',active:x.active,areaId:x.areaId||null,areaName:x.areaName||''})):rows;
+  res.json({ success: true, data });
 });
+
+// The single staff-list read above is the only USER route exposed to CSKH.
+router.use(allowRoles('ADMIN','BRANCH_DIRECTOR'));
 
 router.post('/staff', allowPermission('USER.CREATE'), async (req, res) => {
   try {

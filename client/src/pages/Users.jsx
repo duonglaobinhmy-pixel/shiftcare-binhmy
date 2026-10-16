@@ -47,7 +47,7 @@ const ROLE_CAPS = {
   CSKH: [
     'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
     'REPORT.VIEW', 'REPORT.EXPORT',
-    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+    'CSKH.VIEW', 'USER.VIEW',
   ],
   CARE_SHARED: [
     'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
@@ -78,6 +78,8 @@ const emptyAccountForm = () => ({
 export default function Users() {
   const { user, can } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isCSKH=user?.role==='CSKH';
+  const staffActions=can('USER.UPDATE')||can('USER.DELETE');
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
   const [showAccount, setShowAccount] = useState(false);
@@ -89,7 +91,7 @@ export default function Users() {
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [staffRows, setStaffRows] = useState([]);
-  const [staffBranchId, setStaffBranchId] = useState(user?.role === 'BRANCH_DIRECTOR' ? (user.branchId || '') : '');
+  const [staffBranchId, setStaffBranchId] = useState(user?.role !== 'ADMIN' ? (user.branchId || '') : '');
   const [staffForm, setStaffForm] = useState({ employeeCode: '', fullName: '' });
   const [staffBusy, setStaffBusy] = useState(false);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -105,7 +107,7 @@ export default function Users() {
       ]);
       setBranches(b.data || []);
       setRows(u.data || []);
-      if (user?.role === 'BRANCH_DIRECTOR') setStaffBranchId(user.branchId || '');
+      if (!isAdmin) setStaffBranchId(user.branchId || '');
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -150,7 +152,7 @@ export default function Users() {
 
   function togglePermission(permission) {
     const cap = ROLE_CAPS[form.role] || [];
-    if (!cap.includes(permission)) return;
+    if (!cap.includes(permission)||(form.role==='CSKH'&&permission.endsWith('.VIEW'))) return;
     setForm(current => ({
       ...current,
       permissions: current.permissions.includes(permission)
@@ -161,7 +163,7 @@ export default function Users() {
 
   function toggleModule(group, checked) {
     const cap = new Set(ROLE_CAPS[form.role] || []);
-    const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key));
+    const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key)&&!(form.role==='CSKH'&&key.endsWith('.VIEW')));
     setForm(current => ({
       ...current,
       permissions: checked
@@ -223,7 +225,7 @@ export default function Users() {
       role: row.role,
       branchId: row.branchId || '',
       branchName: row.branchName || '',
-      permissions: Array.isArray(row.permissions) ? [...row.permissions] : [...(ROLE_DEFAULTS[row.role] || [])],
+      permissions: row.role==='CSKH'?[...new Set([...ROLE_CAPS.CSKH.filter(key=>key.endsWith('.VIEW')),...(row.permissions||[]).filter(key=>ROLE_CAPS.CSKH.includes(key))])]:Array.isArray(row.permissions)?[...row.permissions]:[...(ROLE_DEFAULTS[row.role]||[])],
     });
     setFieldErrors({});
     setShowAccount(true);
@@ -313,8 +315,8 @@ export default function Users() {
   return <section>
     <header className="page-head">
       <div>
-        <h1>Tài khoản & nhân sự</h1>
-        <p>Admin quản tài khoản. Giám đốc cơ sở quản danh sách nhân viên thực tế của đúng cơ sở mình.</p>
+        <h1>{isCSKH?'Nhân sự cơ sở':'Tài khoản & nhân sự'}</h1>
+        <p>{isCSKH?'Chỉ xem nhân sự của cơ sở được giao.':'Admin quản tài khoản. Giám đốc cơ sở quản danh sách nhân viên thực tế của đúng cơ sở mình.'}</p>
       </div>
       {isAdmin && <button onClick={showAccount ? resetAccountEditor : startCreateAccount}>{showAccount ? 'Đóng' : '+ Tạo tài khoản'}</button>}
     </header>
@@ -344,9 +346,9 @@ export default function Users() {
         </form>}
       </div>
       {staffLoading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải nhân viên...</b></div></div> :
-        staffBranchId && <div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
-          {staffRows.map(x => <tr key={x.id}><td><b>{x.employeeCode}</b></td><td>{x.fullName}</td><td><span className={`status-pill ${x.active !== false ? 'on' : 'off'}`}>{x.active !== false ? 'Đang làm việc' : 'Ngừng làm việc'}</span></td><td><div className="actions">{can('USER.UPDATE')&&<button className="secondary" onClick={() => editStaff(x)}>Sửa</button>}{can('USER.DELETE')&&<button className="danger" onClick={() => removeStaff(x)}>Xóa</button>}</div></td></tr>)}
-          {!staffRows.length && <tr><td colSpan="4">Chưa có nhân viên trong cơ sở.</td></tr>}
+        staffBranchId && <div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Trạng thái</th>{staffActions&&<th>Thao tác</th>}</tr></thead><tbody>
+          {staffRows.map(x => <tr key={x.id}><td><b>{x.employeeCode}</b></td><td>{x.fullName}</td><td><span className={`status-pill ${x.active !== false ? 'on' : 'off'}`}>{x.active !== false ? 'Đang làm việc' : 'Ngừng làm việc'}</span></td>{staffActions&&<td><div className="actions">{can('USER.UPDATE')&&<button className="secondary" onClick={() => editStaff(x)}>Sửa</button>}{can('USER.DELETE')&&<button className="danger" onClick={() => removeStaff(x)}>Xóa</button>}</div></td>}</tr>)}
+          {!staffRows.length && <tr><td colSpan={staffActions?4:3}>Chưa có nhân viên trong cơ sở.</td></tr>}
         </tbody></table></div>}
     </div>
 
@@ -361,13 +363,13 @@ export default function Users() {
 
       {form.role === 'ADMIN' ? <div className="permission-section"><div className="permission-head"><div><h3>Admin</h3><p>Admin luôn có toàn quyền hệ thống. Không cần tick từng quyền.</p></div></div></div> :
       <div className="permission-section">
-        <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>Role chỉ là trần quyền; quyền thực tế là những ô đang được tick.</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>
+        <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>{form.role==='CSKH'?'CSKH luôn chỉ xem dashboard, báo cáo và nhân sự trong cơ sở; không cấp quyền thêm, sửa, xóa. Các quyền xem là bắt buộc.':'Role chỉ là trần quyền; quyền thực tế là những ô đang được tick.'}</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>
         <div className="permission-matrix">{PERMISSION_GROUPS.map(group => {
           const cap = new Set(ROLE_CAPS[form.role] || []);
           const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key));
           if (!keys.length) return null;
           const allChecked = keys.every(key => form.permissions.includes(key));
-          return <div className="permission-row" key={group.module}><label className="permission-module"><input type="checkbox" checked={allChecked} onChange={e => toggleModule(group, e.target.checked)} /><b>{group.label}</b></label><div>{group.actions.map(action => { const key = `${group.module}.${action}`; if (!cap.has(key)) return null; return <label className="permission-toggle" key={key}><input type="checkbox" checked={form.permissions.includes(key)} onChange={() => togglePermission(key)} />{ACTION_LABELS[action] || action}</label>; })}</div></div>;
+          return <div className="permission-row" key={group.module}><label className="permission-module"><input type="checkbox" checked={allChecked} disabled={form.role==='CSKH'&&keys.every(key=>key.endsWith('.VIEW'))} onChange={e => toggleModule(group, e.target.checked)} /><b>{group.label}</b></label><div>{group.actions.map(action => { const key = `${group.module}.${action}`; if (!cap.has(key)) return null; return <label className="permission-toggle" key={key}><input type="checkbox" checked={form.permissions.includes(key)} disabled={form.role==='CSKH'&&key.endsWith('.VIEW')} onChange={() => togglePermission(key)} />{ACTION_LABELS[action] || action}</label>; })}</div></div>;
         })}</div>
       </div>}
 

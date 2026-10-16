@@ -21,7 +21,7 @@ const FALLBACK_PERMISSIONS = {
   CSKH: [
     'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
     'REPORT.VIEW', 'REPORT.EXPORT',
-    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
+    'CSKH.VIEW', 'USER.VIEW',
   ],
   CARE_SHARED: [
     'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
@@ -35,6 +35,10 @@ const FALLBACK_PERMISSIONS = {
 export function userCan(user, permission) {
   if (!user) return false;
   if (user.role === 'ADMIN') return true;
+  if (user.role === 'CSKH') {
+    const allowed=FALLBACK_PERMISSIONS.CSKH;
+    return allowed.includes(permission)&&(permission.endsWith('.VIEW')||(Array.isArray(user.permissions)?user.permissions:allowed).includes(permission));
+  }
   if (user.role === 'CARE_SHARED' && ['SHIFT.CREATE', 'CARE.UPDATE'].includes(permission)) return true;
   const permissions = Array.isArray(user.permissions)
     ? user.permissions

@@ -22,11 +22,15 @@ export const ALL_PERMISSIONS = Object.freeze(
  * - BRANCH_DIRECTOR: tài khoản giám đốc của một cơ sở.
  * - CARE_SHARED: tài khoản chăm sóc dùng chung tại một cơ sở/iPad.
  *
- * - CSKH: tài khoản cá nhân theo dõi và trao đổi gia đình trong một cơ sở.
+ * - CSKH: chỉ xem dashboard, báo cáo và nhân sự của một cơ sở; không ghi nghiệp vụ.
  *
  * ROLE_CAPS là TRẦN quyền. Admin chỉ được tick quyền nằm trong trần này.
  * Quyền thực tế của Director / CARE_SHARED lấy từ user_permissions.
  */
+export const CSKH_READ_PERMISSIONS=Object.freeze([
+  'DASHBOARD.VIEW','SHIFT.VIEW','CARE.VIEW','HANDOVER.VIEW','REPORT.VIEW','CSKH.VIEW','USER.VIEW',
+]);
+
 export const ROLE_CAPS = Object.freeze({
   ADMIN: ['*'],
   BRANCH_DIRECTOR: [
@@ -42,11 +46,7 @@ export const ROLE_CAPS = Object.freeze({
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
-  CSKH: [
-    'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
-    'REPORT.VIEW', 'REPORT.EXPORT',
-    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
-  ],
+  CSKH: [...CSKH_READ_PERMISSIONS, 'REPORT.EXPORT'],
   CARE_SHARED: [
     'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'SHIFT.VIEW', 'SHIFT.CREATE',
@@ -71,11 +71,7 @@ export const DEFAULT_PERMISSIONS = Object.freeze({
     'USER.VIEW', 'USER.CREATE', 'USER.UPDATE', 'USER.DELETE',
     'SYSTEM.VIEW',
   ],
-  CSKH: [
-    'DASHBOARD.VIEW', 'SHIFT.VIEW', 'CARE.VIEW', 'HANDOVER.VIEW',
-    'REPORT.VIEW', 'REPORT.EXPORT',
-    'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
-  ],
+  CSKH: [...CSKH_READ_PERMISSIONS, 'REPORT.EXPORT'],
   CARE_SHARED: [
     'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
     'SHIFT.VIEW', 'SHIFT.CREATE',
@@ -94,6 +90,7 @@ export function sanitizePermissions(value, role) {
 
 export function normalizePermissions(user = {}) {
   if (user.role === 'ADMIN') return ['*'];
+  if (user.role === 'CSKH') return [...new Set([...CSKH_READ_PERMISSIONS,...sanitizePermissions(user.permissions,user.role)])];
   if (user.role === 'CARE_SHARED') return [...new Set([...sanitizePermissions(user.permissions, user.role), 'SHIFT.CREATE', 'CARE.UPDATE'])];
   return sanitizePermissions(user.permissions, user.role);
 }

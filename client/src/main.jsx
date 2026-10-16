@@ -24,6 +24,20 @@ import System from './pages/System';
 import Forbidden from './pages/Forbidden';
 import './styles/app.css';
 
+function ShiftLanding(){
+  const {user}=useAuth();
+  return user?.role==='CSKH'?<ShiftHistory/>:<ShiftDetail/>;
+}
+function CareEntry({children}){
+  const {user}=useAuth();
+  return user?.role==='CSKH'?<Navigate to="/403" replace/>:children;
+}
+
+function CustomerLanding(){
+  const {user}=useAuth();
+  return user?.role==='CSKH'?<Navigate to="/" replace/>:<OperationsReports customer/>;
+}
+
 function HomeLanding(){
   const {can}=useAuth();
   return can('DASHBOARD.VIEW') ? <Dashboard/> : <Navigate to="/shifts" replace/>;
@@ -43,19 +57,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="residents" element={<Residents/>}/>
             <Route path="shifts" element={<Shifts/>}/>
             <Route path="shifts/current" element={<ShiftCurrent/>}/>
-            <Route path="shifts/:id" element={<ShiftDetail/>}/>
+            <Route path="shifts/:id" element={<ShiftLanding/>}/>
             <Route path="shifts/:id/records/:filter" element={<ShiftRecords/>}/>
-            <Route path="shifts/:id/entry" element={<ShiftEntryPicker/>}/>
-            <Route path="shifts/:id/entry/:residentId" element={<ShiftDetail/>}/>
+            <Route path="shifts/:id/entry" element={<CareEntry><ShiftEntryPicker/></CareEntry>}/>
+            <Route path="shifts/:id/entry/:residentId" element={<CareEntry><ShiftDetail/></CareEntry>}/>
             <Route path="shift-history" element={<ProtectedRoute permission="SHIFT.VIEW"><ShiftHistory/></ProtectedRoute>}/>
             <Route path="shift-history/:id" element={<ProtectedRoute permission="SHIFT.VIEW"><ShiftHistory/></ProtectedRoute>}/>
-            <Route path="cskh" element={<ProtectedRoute permission="CSKH.VIEW"><OperationsReports customer/></ProtectedRoute>}/>
+            <Route path="cskh" element={<ProtectedRoute permission="CSKH.VIEW"><CustomerLanding/></ProtectedRoute>}/>
             <Route path="reports" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><Reports/></ProtectedRoute>}/>
             <Route path="reports/staff" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><StaffReports/></ProtectedRoute>}/>
             <Route path="reports/staff/day/:date" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><StaffReportDay/></ProtectedRoute>}/>
             <Route path="reports/resident/:residentId" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="REPORT.VIEW"><ResidentReportDetail/></ProtectedRoute>}/>
             <Route path="audit" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><Audit/></ProtectedRoute>}/>
-            <Route path="users" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']} permission="USER.VIEW"><Users/></ProtectedRoute>}/>
+            <Route path="users" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR','CSKH']} permission="USER.VIEW"><Users/></ProtectedRoute>}/>
             <Route path="system" element={<ProtectedRoute roles={['ADMIN','BRANCH_DIRECTOR']}><System/></ProtectedRoute>}/>
           </Route>
         </Routes>

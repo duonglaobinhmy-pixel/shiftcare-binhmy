@@ -15,7 +15,7 @@ const {saveUsers}=await import('../src/services/store.service.js');
 const {signUser}=await import('../src/middleware/auth.js');
 const {CARE_BRANCHES}=await import('../src/config/branches.js');
 const {transactOperations}=await import('../src/services/operations-store.service.js');
-const {normalizePermissions}=await import('../src/config/permissions.js');
+const {normalizePermissions,CSKH_READ_PERMISSIONS}=await import('../src/config/permissions.js');
 const branchId=CARE_BRANCHES[0].id,otherBranchId=CARE_BRANCHES[1].id;
 const admin={id:'test-admin',role:'ADMIN',username:'admin.test',fullName:'Admin',password:'Test@123',active:true};
 await saveUsers([admin]);
@@ -27,7 +27,7 @@ try{
  await test('Admin creates multiple individual CSKH accounts; login and scope enforcement work',async()=>{
   const payload={username:'cskh.test',password:'Test@123',fullName:'CSKH',role:'CSKH',branchId};
   assert.equal((await call('/api/users',undefined,'POST',{...payload,branchId:''})).status,400);
-  const created=await call('/api/users',undefined,'POST',payload);assert.equal(created.status,201);assert.ok(created.body.data.permissions.includes('CSKH.CREATE'));assert.equal(created.body.data.password,undefined);
+  const created=await call('/api/users',undefined,'POST',payload);assert.equal(created.status,201);assert.ok(created.body.data.permissions.includes('USER.VIEW'));assert.ok(!created.body.data.permissions.includes('CSKH.CREATE'));assert.equal(created.body.data.password,undefined);
   assert.equal((await call('/api/users',undefined,'POST',{...payload,username:'cskh.second'})).status,201);
   const login=await call('/api/auth/login',undefined,'POST',{username:payload.username,password:payload.password});assert.equal(login.status,200);const token=login.body.token;
   assert.equal((await call(`/api/cskh/daily?branchId=${branchId}`,token)).status,200);
@@ -36,9 +36,9 @@ try{
   assert.equal((await call('/api/operations/activities',token,'POST',{branchId})).status,403);
   assert.equal((await call('/api/operations/scopes/missing/sign',token,'POST',{branchId})).status,403);
   await transactOperations(branchId,s=>{s.residents.push({id:'test-resident',branchId,name:'NCT',zoneId:'test-zone'})});
-  const contact=await call('/api/cskh/interactions',token,'POST',{branchId,residentId:'test-resident',channel:'PHONE',occurredAt:new Date().toISOString(),contactName:'Gia đình',content:'Đã trao đổi'});assert.equal(contact.status,200);
+  const contact=await call('/api/cskh/interactions',token,'POST',{branchId,residentId:'test-resident',channel:'PHONE',occurredAt:new Date().toISOString(),contactName:'Gia đình',content:'Đã trao đổi'});assert.equal(contact.status,403);
   const changed=await call(`/api/users/${created.body.data.id}`,undefined,'PATCH',{permissions:['CSKH.VIEW','CARE.CREATE','HANDOVER.SIGN']});assert.equal(changed.status,200);assert.deepEqual(changed.body.data.permissions,['CSKH.VIEW']);
   assert.equal((await call('/api/cskh/interactions',token,'POST',{branchId})).status,403);
  });
- await test('CSKH role cap removes forged clinical and account-management permissions',()=>{assert.deepEqual(normalizePermissions({role:'CSKH',permissions:['*','CSKH.VIEW','MEDICAL.ADMINISTER','SHIFT.DELETE','USER.CREATE']}),['CSKH.VIEW'])});
+ await test('CSKH role cap removes forged clinical and account-management permissions',()=>{assert.deepEqual(normalizePermissions({role:'CSKH',permissions:['*','CSKH.VIEW','MEDICAL.ADMINISTER','SHIFT.DELETE','USER.CREATE']}),CSKH_READ_PERMISSIONS)});
 }finally{await new Promise(resolve=>server.close(resolve));await fs.rm(temp,{recursive:true,force:true})}
