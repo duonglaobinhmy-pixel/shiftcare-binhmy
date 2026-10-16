@@ -153,7 +153,7 @@ function mapCareRow(x){
   const vitals=(x.pulse!=null||x.temperature!=null||x.bp_sys!=null||x.bp_dia!=null||x.spo2!=null||x.respiratory_rate!=null||x.blood_glucose!=null||x.insulin_dose_units!=null||x.alert_level)?{
     pulse:x.pulse==null?null:Number(x.pulse),temperature:x.temperature==null?null:Number(x.temperature),bpSys:x.bp_sys==null?null:Number(x.bp_sys),bpDia:x.bp_dia==null?null:Number(x.bp_dia),spo2:x.spo2==null?null:Number(x.spo2),respiratoryRate:x.respiratory_rate==null?null:Number(x.respiratory_rate),bloodGlucose:x.blood_glucose==null?null:Number(x.blood_glucose),insulinDoseUnits:x.insulin_dose_units==null?null:Number(x.insulin_dose_units),concern:!!x.concern,alertLevel:x.alert_level||'NORMAL',alerts:x.alerts||[],urgent:x.urgent||null
   }:null;
-  return {resolutionNote:x.legacy_extra?.resolutionNote||'',resolvedByName:x.legacy_extra?.resolvedByName||'',resolvedAt:x.legacy_extra?.resolvedAt||iso(x.attention_resolved_at),resolvedInShiftId:x.legacy_extra?.resolvedInShiftId||null,followUpStatus:x.legacy_extra?.followUpStatus||null,id:x.id,performerStaffId:x.legacy_extra?.performerStaffId||null,performerStaffName:x.legacy_extra?.performerStaffName||'',clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:x.category_codes?.length?x.category_codes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:x.legacy_extra?.eventCodes?.length?x.legacy_extra.eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
+  return {resolutionUpdatedAt:x.legacy_extra?.resolutionUpdatedAt||null,resolutionUpdatedByName:x.legacy_extra?.resolutionUpdatedByName||'',resolutionNote:x.legacy_extra?.resolutionNote||'',resolvedByName:x.legacy_extra?.resolvedByName||'',resolvedAt:x.legacy_extra?.resolvedAt||iso(x.attention_resolved_at),resolvedInShiftId:x.legacy_extra?.resolvedInShiftId||null,followUpStatus:x.legacy_extra?.followUpStatus||null,id:x.id,performerStaffId:x.legacy_extra?.performerStaffId||null,performerStaffName:x.legacy_extra?.performerStaffName||'',clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',category:x.category,categoryCodes:x.category_codes?.length?x.category_codes:Array.isArray(x.legacy_extra?.categoryCodes)&&x.legacy_extra.categoryCodes.length?x.legacy_extra.categoryCodes:[x.category],eventType:x.event_type,residentStatus:x.resident_status||'IN_FACILITY',eventCodes:x.legacy_extra?.eventCodes?.length?x.legacy_extra.eventCodes:[x.event_type],priority:x.priority,occurredAt:iso(x.occurred_at),content:x.content||'',intervention:x.intervention||'',notifiedTo:x.notified_to||'',requiresHandover:!!x.requires_handover,followUp:x.follow_up||'',branchId:x.branch_id,branchName:x.branch_name_snapshot||'',areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedByName:x.updated_by_name_cache||'',updatedAt:iso(x.updated_at),insulin:x.legacy_extra?.insulin|| (x.insulin_dose_units!=null?{given:true,dose:Number(x.insulin_dose_units),unit:'IU'}:null),attentionLevel:x.attention_level||null,attentionStatus:x.attention_level?(x.attention_status==='RESOLVED'?'RESOLVED':'OPEN'):null,attentionResolvedAt:iso(x.attention_resolved_at),attentionResolvedBy:x.attention_resolved_by,vitals,woundImages:[]};
 }
 function mapToiletRow(x){return{id:x.id,clientRequestId:x.client_request_id||'',shiftId:x.shift_id,residentId:x.bcare_resident_id,residentName:x.resident_name_snapshot||'',bowelStatus:x.bowel_status,urineStatus:x.urine_status,urineDetail:x.urine_detail||'',note:x.note||'',branchId:x.branch_id,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot||'',roomName:x.room_name_snapshot||'',bedName:x.bed_name_snapshot||'',image:x.image_snapshot||'',createdBy:x.created_by,createdByName:x.created_by_name_cache||'',createdAt:iso(x.created_at),updatedBy:x.updated_by,updatedAt:iso(x.updated_at)}}
 
@@ -598,7 +598,7 @@ export async function getResidentVitalsReportFast(user,{residentId,from,to,branc
   return {readings,latest};
 }
 
-export async function createShiftFast(user,body,{branchName='',assignedStaff=[],primaryRecorder}={}){
+export async function createShiftFast(user,body,{branchName='',assignedStaff=[],primaryRecorder,rosterItems=[]}={}){
   if(!await ready())return null;
   const id=uuid();const shiftDate=dateOnly(body.shiftDate)||dateOnly(new Date());
   invalidateStoreCache();
@@ -606,6 +606,7 @@ export async function createShiftFast(user,body,{branchName='',assignedStaff=[],
     await db.query(`INSERT INTO bcare_branches_ref(bcare_branch_id,name_cache,last_synced_at) VALUES($1,$2,NOW()) ON CONFLICT(bcare_branch_id) DO UPDATE SET name_cache=COALESCE(NULLIF(EXCLUDED.name_cache,''),bcare_branches_ref.name_cache),last_synced_at=NOW()`,[String(body.branchId),String(branchName||'')]);
     await db.query(`INSERT INTO shifts(id,shift_date,shift_type,status,branch_id,branch_name_cache,area_id_cache,area_name_cache,room_id_cache,auto_created,created_by,created_at) VALUES($1,$2,$3,'OPEN',$4,$5,$6,$7,$8,$9,$10,NOW())`,[id,shiftDate,body.shiftType,body.branchId,branchName,body.areaId||null,body.areaName||'',body.roomId||null,!!body.autoCreated,user.sub]);
     for(const p of assignedStaff)await db.query(`INSERT INTO shift_staff(shift_id,staff_id,is_primary_recorder) VALUES($1,$2,$3)`,[id,p.id,p.id===primaryRecorder.id]);
+    await writeRosterRows(db,{id,...body,branchName},rosterItems);
   });
   invalidateStoreCache();
   return {id,shiftDate,shiftType:body.shiftType,status:'OPEN',branchId:body.branchId,branchName,areaId:body.areaId||null,areaName:body.areaName||'',roomId:body.roomId||null,assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,autoCreated:!!body.autoCreated,createdBy:user.sub,createdAt:new Date().toISOString()};
@@ -619,19 +620,29 @@ export async function updateShiftStaffFast(id,user,{assignedStaff,primaryRecorde
   return true;
 }
 
-export async function replaceShiftRosterFast(shift,items){
-  if(!await ready())return null;
-  invalidateStoreCache();
-  await withTransaction(async db=>{
-    await db.query(`DELETE FROM shift_residents WHERE shift_id=$1`,[shift.id]);
+async function writeRosterRows(db,shift,items){
+  await db.query(`DELETE FROM shift_residents r WHERE r.shift_id=$1 AND NOT(r.bcare_resident_id=ANY($2::text[]))
+    AND NOT EXISTS(SELECT 1 FROM care_records c WHERE c.shift_id=r.shift_id AND c.bcare_resident_id=r.bcare_resident_id)
+    AND NOT EXISTS(SELECT 1 FROM toileting_logs t WHERE t.shift_id=r.shift_id AND t.bcare_resident_id=r.bcare_resident_id)`,[shift.id,items.map(r=>String(r.id))]);
     for(const r of items){
       await db.query(`INSERT INTO bcare_branches_ref(bcare_branch_id,name_cache,last_synced_at) VALUES($1,$2,NOW()) ON CONFLICT(bcare_branch_id) DO UPDATE SET name_cache=COALESCE(NULLIF(EXCLUDED.name_cache,''),bcare_branches_ref.name_cache),last_synced_at=NOW()`,[String(r.branchId||shift.branchId),String(r.branchName||shift.branchName||'')]);
       await db.query(`INSERT INTO bcare_residents_ref(bcare_resident_id,code_cache,full_name_cache,branch_id,area_id_cache,area_name_cache,room_id_cache,room_name_cache,bed_name_cache,image_cache,last_synced_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) ON CONFLICT(bcare_resident_id) DO UPDATE SET code_cache=EXCLUDED.code_cache,full_name_cache=EXCLUDED.full_name_cache,branch_id=EXCLUDED.branch_id,area_id_cache=EXCLUDED.area_id_cache,area_name_cache=EXCLUDED.area_name_cache,room_id_cache=EXCLUDED.room_id_cache,room_name_cache=EXCLUDED.room_name_cache,bed_name_cache=EXCLUDED.bed_name_cache,image_cache=EXCLUDED.image_cache,last_synced_at=NOW()`,[String(r.id),String(r.code||''),String(r.fullName||''),String(r.branchId||shift.branchId),r.areaId?String(r.areaId):null,String(r.areaName||''),r.roomId?String(r.roomId):null,String(r.roomName||''),String(r.bedName||''),String(r.image||'')]);
       await db.query(`INSERT INTO shift_residents(id,shift_id,bcare_resident_id,code_snapshot,full_name_snapshot,branch_id,branch_name_snapshot,area_id_snapshot,area_name_snapshot,room_id_snapshot,room_name_snapshot,bed_name_snapshot,image_snapshot,derived_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'NO_RECORDED_CHANGE') ON CONFLICT(shift_id,bcare_resident_id) DO NOTHING`,[uuid(),shift.id,String(r.id),String(r.code||''),String(r.fullName||''),String(r.branchId||shift.branchId),String(r.branchName||shift.branchName||''),r.areaId?String(r.areaId):null,String(r.areaName||''),r.roomId?String(r.roomId):null,String(r.roomName||''),String(r.bedName||''),String(r.image||'')]);
     }
+  const count=await db.query('SELECT COUNT(*)::int AS count FROM shift_residents WHERE shift_id=$1',[shift.id]);
+  return Number(count.rows[0].count);
+}
+export async function replaceShiftRosterFast(shift,items){
+  if(!await ready())return null;
+  invalidateStoreCache();
+  const count=await withTransaction(async db=>{
+    const locked=await db.query(`SELECT s.id FROM shifts s WHERE s.id=$1 AND s.status='OPEN'
+      AND NOT EXISTS(SELECT 1 FROM handovers h WHERE h.shift_id=s.id AND (h.confirmed_at IS NOT NULL OR h.received_at IS NOT NULL)) FOR UPDATE`,[shift.id]);
+    if(!locked.rowCount)throw Object.assign(new Error('Ca đã khóa hoặc đã ký trong lúc tải roster.'),{status:409});
+    return writeRosterRows(db,shift,items);
   });
   invalidateStoreCache();
-  return items.length;
+  return count;
 }
 
 export async function deleteShiftFast(user,id){

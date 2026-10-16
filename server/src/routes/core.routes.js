@@ -220,28 +220,40 @@ function normalizeVitals(vitals,insulin){
   return normalized;
 }
 
-async function loadRosterForShift(shift,{replace=true}={}){
+async function fetchRosterForShift(shift){
   let page=1,totalPage=1,items=[];
   do{
-    const r=await getResidents({pageIndex:page,pageSize:100,branchId:shift.branchId,roomId:shift.roomId||'',status:1});
-    totalPage=Number(r.totalPage||1);items.push(...(r.items||[]));page++;
-  }while(page<=totalPage&&page<=20);
+    const result=await getResidents({pageIndex:page,pageSize:100,branchId:shift.branchId,roomId:shift.roomId||'',status:1});
+    totalPage=Number(result.totalPage||1);
+    if(!Number.isInteger(totalPage)||totalPage<1||totalPage>200)throw new Error('Phân trang BCARE không hợp lệ hoặc vượt 200 trang; chưa thay roster.');
+    items.push(...(result.items||[]));page++;
+  }while(page<=totalPage);
   const seen=new Set();
-  items=items.filter(r=>{
-    if(!r?.id)return false;
-    if(shift.branchId&&r.branchId&&String(r.branchId)!==String(shift.branchId))return false;
-    if(shift.areaId&&r.areaId&&String(r.areaId)!==String(shift.areaId))return false;
-    if(shift.roomId&&r.roomId&&String(r.roomId)!==String(shift.roomId))return false;
-    const key=String(r.id);if(seen.has(key))return false;seen.add(key);return true;
+  return items.filter(row=>{
+    if(!row?.id)return false;
+    if(row.branchId&&String(row.branchId)!==String(shift.branchId))return false;
+    if(shift.areaId&&String(row.areaId||'')!==String(shift.areaId))return false;
+    if(shift.roomId&&String(row.roomId||'')!==String(shift.roomId))return false;
+    const key=String(row.id);if(seen.has(key))return false;seen.add(key);return true;
   });
+}
+function applyRoster(store,shift,items){
+  const incoming=new Set(items.map(row=>String(row.id)));
+  const referenced=new Set([...store.changeLogs,...store.toiletingLogs].filter(row=>row.shiftId===shift.id).map(row=>String(row.residentId)));
+  store.shiftResidents=store.shiftResidents.filter(row=>row.shiftId!==shift.id||incoming.has(String(row.residentId))||referenced.has(String(row.residentId)));
+  const existing=new Set(store.shiftResidents.filter(row=>row.shiftId===shift.id).map(row=>String(row.residentId)));
+  for(const row of items){if(existing.has(String(row.id)))continue;store.shiftResidents.push({id:uuid(),shiftId:shift.id,residentId:String(row.id),code:row.code||'',fullName:row.fullName||'',branchId:String(row.branchId||shift.branchId),branchName:row.branchName||shift.branchName,areaId:row.areaId||null,areaName:row.areaName||'',roomId:row.roomId||null,roomName:row.roomName||'',bedName:row.bedName||'',image:row.image||'',derivedStatus:'NO_RECORDED_CHANGE'});}
+  return store.shiftResidents.filter(row=>row.shiftId===shift.id).length;
+}
+async function loadRosterForShift(shift){
+  const items=await fetchRosterForShift(shift);
   const fast=await replaceShiftRosterFast(shift,items);
   if(fast!==null)return fast;
-  await updateStore(store=>{
-    if(replace)store.shiftResidents=store.shiftResidents.filter(x=>x.shiftId!==shift.id);
-    const existing=new Set(store.shiftResidents.filter(x=>x.shiftId===shift.id).map(x=>String(x.residentId)));
-    for(const r of items){if(existing.has(String(r.id)))continue;store.shiftResidents.push({id:uuid(),shiftId:shift.id,residentId:String(r.id),code:r.code||'',fullName:r.fullName||'',branchId:String(r.branchId||shift.branchId),branchName:r.branchName||shift.branchName,areaId:r.areaId||null,areaName:r.areaName||'',roomId:r.roomId||null,roomName:r.roomName||'',bedName:r.bedName||'',image:r.image||'',derivedStatus:'NO_RECORDED_CHANGE'})}
+  return updateStore(store=>{
+    const current=store.shifts.find(row=>row.id===shift.id);
+    if(!careUnlocked(store,current))throw Object.assign(new Error('Ca đã khóa hoặc đã ký trong lúc tải roster.'),{status:409});
+    return applyRoster(store,current,items);
   });
-  return items.length;
 }
 async function createShift(user,body,{auto=false}={}){
   const branchId=user.role==='ADMIN'?String(body.branchId||''):String(user.branchId||'');
@@ -259,9 +271,10 @@ async function createShift(user,body,{auto=false}={}){
   const primaryRecorder=assignedStaff.find(x=>x.id===String(body.primaryRecorderId||''));
   if(!primaryRecorder)throw new Error('Phải chọn một người ghi chính trong danh sách nhân sự trực ca.');
   const base={shiftDate:normalizeDateOnly(body.shiftDate||todayVN()),shiftType,branchId,branchName,areaId:body.areaId||null,areaName:body.areaName||'',roomId:body.roomId||null,autoCreated:auto};
-  let shift=await createShiftFast(user,base,{branchName,assignedStaff,primaryRecorder});
-  if(!shift){shift={id:uuid(),...base,status:'OPEN',assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,createdBy:user.sub,createdAt:new Date().toISOString()};await updateStore(store=>store.shifts.push(shift));}
-  const residentCount=await loadRosterForShift(shift,{replace:true});
+  const items=await fetchRosterForShift(base);
+  let residentCount=items.length;
+  let shift=await createShiftFast(user,base,{branchName,assignedStaff,primaryRecorder,rosterItems:items});
+  if(!shift){shift={id:uuid(),...base,status:'OPEN',assignedStaffIds:assignedStaff.map(x=>x.id),assignedStaff,assignedStaffNames:assignedStaff.map(x=>x.fullName),assignedStaffId:primaryRecorder.id,assignedStaffName:primaryRecorder.fullName,primaryRecorderId:primaryRecorder.id,primaryRecorderName:primaryRecorder.fullName,primaryRecorderCode:primaryRecorder.employeeCode,createdBy:user.sub,createdAt:new Date().toISOString()};await updateStore(store=>{store.shifts.push(shift);residentCount=applyRoster(store,shift,items);});}
   await audit(user,auto?'SHIFT_AUTO_CREATE':'SHIFT_CREATE','shift',shift.id,{residentCount,areaId:shift.areaId,branchId:shift.branchId});
   return {...shift,residentCount};
 }
@@ -394,7 +407,7 @@ router.patch('/shifts/:id/staff',allowPermission('SHIFT.UPDATE'),async(req,res)=
 router.post('/shifts/:id/refresh-roster',allowPermission('SHIFT.UPDATE'),async(req,res)=>{
   const fastRows=await getShiftsFast(req.user);let shift=fastRows?.find(x=>x.id===req.params.id);if(!fastRows){const s=await getStore();shift=s.shifts.find(x=>x.id===req.params.id&&visibleByScope(req.user,x));}
   if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca đã khóa/bàn giao nên không thể nạp lại roster.'});
-  try{const residentCount=await loadRosterForShift(shift,{replace:true});await audit(req.user,'SHIFT_ROSTER_REFRESH','shift',shift.id,{residentCount});res.json({success:true,data:{residentCount}})}catch(e){res.status(502).json({success:false,message:`Không nạp được NCT từ BCARE: ${e.message}`})}
+  try{const residentCount=await loadRosterForShift(shift,{replace:true});await audit(req.user,'SHIFT_ROSTER_REFRESH','shift',shift.id,{residentCount});res.json({success:true,data:{id:shift.id,residentCount}})}catch(e){res.status(e.status||502).json({success:false,message:`Không nạp được NCT từ BCARE: ${e.message}`})}
 });
 router.delete('/shifts/:id',allowPermission('SHIFT.DELETE'),async(req,res)=>{
   const fast=await deleteShiftFast(req.user,req.params.id);if(fast){if(fast.notFound)return res.status(404).json({success:false,message:'Không tìm thấy ca'});if(fast.blocked)return res.status(422).json({success:false,message:`Không thể xóa ca đã có dữ liệu (${fast.counts.changes} biến động, ${fast.counts.toileting} tiêu/tiểu, ${fast.counts.handovers} bàn giao). Cần giữ ca đã có dữ liệu để bảo toàn lịch sử.`});await audit(req.user,'SHIFT_DELETE','shift',req.params.id,{shiftDate:fast.shift.shiftDate,shiftType:fast.shift.shiftType,deletedByAdmin:req.user.role==='ADMIN',deletedRecords:fast.counts});return res.json({success:true,deletedRecords:fast.counts});}
@@ -510,6 +523,27 @@ router.post('/change-logs/:id/resolve',allowPermission('CARE.UPDATE'),async(req,
   await audit(req.user,'CHANGE_RESOLVE','change_log',found.id,{residentId:found.residentId,note,sourceShiftId:found.shiftId,resolvedInShiftId:found.resolvedInShiftId});
   if(found.attentionLevel==='RED')void notifyUrgentResolved(found).then(result=>result.sent&&audit(req.user,'TELEGRAM_URGENT_RESOLVED','change_log',found.id,{messageId:result.messageId})).catch(error=>console.error('Telegram resolved alert failed:',error.message));
   res.json({success:true,data:withAttention(found)});
+});
+router.patch('/change-logs/:id/resolution',allowPermission('CARE.UPDATE'),async(req,res)=>{
+  const note=String(req.body?.note||'').trim(),reason=String(req.body?.reason||'').trim();
+  if(!note||note.length>2000||!reason||reason.length>1000||typeof req.body?.expectedNote!=='string')
+    return res.status(422).json({success:false,message:'Cần kết quả xử lý (tối đa 2000 ký tự), lý do sửa và phiên bản kết quả đã đọc.'});
+  let result,previousNote;
+  await updateStore(store=>{
+    const row=store.changeLogs.find(x=>x.id===req.params.id&&!x.deleted);
+    if(!row||!visibleByScope(req.user,row))throw Object.assign(new Error('Không tìm thấy ghi nhận.'),{status:404});
+    if(row.attentionStatus!=='RESOLVED'&&row.followUpStatus!=='RESOLVED')throw Object.assign(new Error('Ghi nhận chưa hoàn tất xử lý.'),{status:422});
+    const processing=store.shifts.find(x=>x.id===(row.resolvedInShiftId||row.shiftId));
+    if(!processing||!canAccessShift(req.user,processing)||!careUnlocked(store,processing))throw Object.assign(new Error('Ca đã lưu kết quả xử lý đã khóa; không được sửa kết quả.'),{status:403});
+    if((row.resolutionNote||'')!==req.body.expectedNote)throw Object.assign(new Error('Kết quả đã được sửa trên thiết bị khác. Tải lại trước khi sửa.'),{status:409});
+    previousNote=row.resolutionNote||'';
+    const at=new Date().toISOString();
+    row.resolutionRevisions=[...(row.resolutionRevisions||[]),{note:previousNote,replacedAt:at,replacedBy:req.user.sub,replacedByName:req.user.fullName,reason}];
+    row.resolutionNote=note;row.resolutionUpdatedAt=at;row.resolutionUpdatedBy=req.user.sub;row.resolutionUpdatedByName=req.user.fullName;
+    result=withAttention(row);
+  });
+  await audit(req.user,'CHANGE_RESOLUTION_UPDATE','change_log',result.id,{previousNote,note,reason,resolvedInShiftId:result.resolvedInShiftId||result.shiftId});
+  res.json({success:true,data:result});
 });
 router.post('/change-logs/:id/restore',allowPermission('CARE.DELETE'),async(req,res)=>{if(req.user.role!=='ADMIN')return res.status(403).json({success:false,message:'Chỉ Admin được khôi phục bản ghi.'});let found=null;await updateStore(store=>{found=store.changeLogs.find(x=>x.id===req.params.id);if(found){found.deleted=false;found.restoredBy=req.user.sub;found.restoredAt=new Date().toISOString()}});if(!found)return res.status(404).json({success:false,message:'Không tìm thấy bản ghi'});await audit(req.user,'CHANGE_RESTORE','change_log',found.id);res.json({success:true,data:found})});
 router.delete('/change-logs/:id',allowPermission('CARE.DELETE'),async(req,res)=>{if(req.user.role!=='ADMIN')return res.status(403).json({success:false,message:'Chỉ Admin được xóa bản ghi chăm sóc.'});const reason=String(req.body?.reason||'').trim();if(!reason)return res.status(422).json({success:false,message:'Admin phải nhập lý do xóa để lưu audit.'});let found=null;await updateStore(store=>{found=store.changeLogs.find(x=>x.id===req.params.id);if(found){found.deleted=true;found.deletedAt=new Date().toISOString();found.deletedBy=req.user.sub;found.deleteReason=reason}});if(!found)return res.status(404).json({success:false,message:'Không tìm thấy bản ghi'});await audit(req.user,'CHANGE_SOFT_DELETE','change_log',found.id,{reason});res.json({success:true})});
