@@ -69,7 +69,7 @@ router.get('/wound-images/:id', allowPermission('CARE.VIEW'), async (req, res) =
 
 router.delete('/wound-images/:id', allowPermission('CARE.DELETE'), async (req, res) => {
   if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ success: false, message: 'Chỉ Admin được xóa ảnh đã lưu.' });
+    return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được xóa ảnh đã lưu.' });
   }
 
   const reason = String(req.body?.reason || '').trim();

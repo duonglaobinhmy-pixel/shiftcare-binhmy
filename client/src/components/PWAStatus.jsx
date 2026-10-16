@@ -13,7 +13,7 @@ export default function PWAStatus(){
   async function install(){ if(!deferred)return; deferred.prompt(); await deferred.userChoice; setDeferred(null); }
   async function sync(){ if(syncing||!navigator.onLine)return; setSyncing(true); for(const row of getOutbox()){ try{ if(row.kind==='change')await api.change(row.payload,{skipQueue:true}); if(row.kind==='toileting')await api.toileting(row.payload,{skipQueue:true}); removeOutbox(row.id); }catch{ break; } } setPending(getOutbox().length); setSyncing(false); }
   return <div className="pwa-status">
-    <span className={online?'net online':'net offline'}>{online?'● Online':'● Offline'}</span>
+    <span className={online?'net online':'net offline'}>{online?'● Có kết nối mạng':'● Mất kết nối mạng'}</span>
     {pending>0&&<button className="pwa-mini" onClick={sync} disabled={!online||syncing}>{syncing?'Đang đồng bộ…':`${pending} chờ đồng bộ`}</button>}
     {deferred&&<button className="pwa-mini" onClick={install}>Cài ứng dụng</button>}
   </div>

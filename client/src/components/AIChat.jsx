@@ -39,7 +39,7 @@ export default function AIChat(){
   const scope=useMemo(()=>scopeFromLocation(location),[location.pathname,location.search]);
   const [open,setOpen]=useState(false);
   const [text,setText]=useState('');
-  const [rows,setRows]=useState([{role:'assistant',content:'Chào bạn. Tôi đọc dữ liệu CSDL theo đúng phạm vi trang báo cáo hiện tại và quyền tài khoản; tôi không tự sửa hồ sơ.'}]);
+  const [rows,setRows]=useState([{role:'assistant',content:'Chào bạn. Tôi đọc cơ sở dữ liệu theo đúng phạm vi trang báo cáo hiện tại và quyền tài khoản; tôi không tự sửa hồ sơ.'}]);
   const [busy,setBusy]=useState(false);
   const [status,setStatus]=useState(null);
 
@@ -87,7 +87,7 @@ export default function AIChat(){
     }finally{setBusy(false)}
   }
 
-  const aiLabel=status?.geminiAvailable?'Gemini + CSDL':'Báo cáo nội bộ từ CSDL';
+  const aiLabel=status?.geminiAvailable?'Gemini + cơ sở dữ liệu':'Báo cáo nội bộ từ cơ sở dữ liệu';
 
   return <>
     <button className="ai-fab" onClick={()=>setOpen(value=>!value)}>AI</button>
@@ -95,7 +95,7 @@ export default function AIChat(){
       <div className="ai-head">
         <div>
           <b>Trợ lý ShiftCare</b>
-          <small>Read-only • theo quyền tài khoản</small>
+          <small>Chỉ đọc • theo quyền tài khoản</small>
           <small>Phạm vi: {scopeLabel(scope)}</small>
           <small>{aiLabel}</small>
           {status?.geminiWarning&&<small>{status.geminiWarning}</small>}
@@ -111,10 +111,10 @@ export default function AIChat(){
       <div className="ai-messages">
         {rows.map((m,i)=><div key={i} className={`ai-msg ${m.role}`}>
           <div>{m.content}</div>
-          {m.mode&&<small>{m.mode==='gemini'?'Gemini trên dữ liệu CSDL':'Báo cáo nội bộ từ CSDL'}</small>}
+          {m.mode&&<small>{m.mode==='gemini'?'Gemini trên cơ sở dữ liệu':'Báo cáo nội bộ từ cơ sở dữ liệu'}</small>}
           {m.warning&&<small>{m.warning}</small>}
         </div>)}
-        {busy&&<div className="ai-msg assistant">Đang đọc dữ liệu CSDL trong phạm vi đang xem…</div>}
+        {busy&&<div className="ai-msg assistant">Đang đọc cơ sở dữ liệu trong phạm vi đang xem…</div>}
       </div>
 
       <div className="ai-compose">

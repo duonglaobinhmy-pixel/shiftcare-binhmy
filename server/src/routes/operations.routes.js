@@ -25,7 +25,7 @@ route('post','/operations/org/:kind',mutation('SYSTEM.UPDATE',(s,r,id)=>D.config
 route('post','/operations/residents/sync',async(req,res)=>{
   D.requirePermission(req.user,'SYSTEM.UPDATE');const id=branch(req);let items=[],pageIndex=1,totalPage=1;
   do{const result=await getResidents({branchId:id,pageIndex,pageSize:100});items.push(...result.items);totalPage=Number(result.totalPage||Math.ceil(Number(result.totalItem||items.length)/100)||1);if(!Number.isFinite(totalPage)||totalPage>1000)D.fail('Danh mục quá lớn. Cần đồng bộ theo lô nền.',413);pageIndex++}while(pageIndex<=totalPage);
-  if(items.some(r=>String(r.id).startsWith('MOCK-'))&&req.body.allowDemo!==true)D.fail('BCARE đang trả dữ liệu giả lập. Chọn cho phép dữ liệu demo nếu chỉ chạy thử.',409);
+  if(items.some(r=>String(r.id).startsWith('MOCK-'))&&req.body.allowDemo!==true)D.fail('BCARE đang trả dữ liệu giả lập. Chọn cho phép dữ liệu chạy thử nếu chỉ chạy thử.',409);
   ok(res,await transactOperations(id,s=>D.syncResidents(s,req.user,id,items)));
 });
 route('post','/operations/shifts',mutation('SHIFT.CREATE',(s,r,id)=>D.ensureShift(s,r.user,id,r.body)));
@@ -52,7 +52,7 @@ route('get','/reporting/overview',async(req,res)=>ok(res,await reportFor(req)));
 route('get','/cskh/daily',async(req,res)=>ok(res,await reportFor(req)));
 route('get','/reporting/export',async(req,res)=>{D.requirePermission(req.user,'REPORT.EXPORT');const data=await reportFor(req);if(req.query.expectedFingerprint&&req.query.expectedFingerprint!==data.fingerprint)D.fail('Dữ liệu đã thay đổi. Tải lại báo cáo trước khi xuất.',409);if(data.pagination.rowCount>200)D.fail('Hơn 200 nhóm; thu hẹp bộ lọc hoặc dùng xuất theo từng trang.',413);data.rows=data.rows;res.set('Content-Type','text/csv; charset=utf-8');res.set('Content-Disposition','attachment; filename="ShiftCare-report.csv"');res.send(csvReport(data))});
 route('get','/cskh/residents/:id/timeline',async(req,res)=>{
-  D.requirePermission(req.user,'CSKH.VIEW');const branchId=branch(req),s=await readOperations(branchId),legacy=legacyReportState(await getStore(),branchId);const r=s.residents.find(r=>r.id===req.params.id)||legacy.residents.find(r=>r.id===req.params.id&&D.visible(req.user,r));if(!r)D.fail('Chưa có NCT trong roster.',404);D.assertVisible(req.user,r);
+  D.requirePermission(req.user,'CSKH.VIEW');const branchId=branch(req),s=await readOperations(branchId),legacy=legacyReportState(await getStore(),branchId);const r=s.residents.find(r=>r.id===req.params.id)||legacy.residents.find(r=>r.id===req.params.id&&D.visible(req.user,r));if(!r)D.fail('Chưa có NCT trong danh sách ca.',404);D.assertVisible(req.user,r);
   const match=x=>x.residentId===r.id&&D.visible(req.user,x);ok(res,{resident:r,activities:[...s.activities,...legacy.activities].filter(match).map(a=>({id:a.id,content:a.content,category:a.category,occurredAt:a.occurredAt,savedAt:a.savedAt,performedByStaffName:a.performedByStaffName,enteredByName:a.enteredByName,zoneName:a.zoneName,floorName:a.floorName})),interactions:s.interactions.filter(match),followups:s.followups.filter(match)});
 });
 route('post','/cskh/interactions',mutation('CSKH.CREATE',(s,r)=>D.createInteraction(s,r.user,r.body)));
@@ -62,7 +62,7 @@ route('get','/follow-ups',async(req,res)=>{if(!req.user.permissions?.includes('C
 route('post','/reporting/snapshots',async(req,res)=>{
   D.requirePermission(req.user,'REPORT.FINALIZE');const id=branch(req);if(req.body.status==='FINAL')D.fail('Chưa hỗ trợ chốt FINAL: cần lịch hiệu lực, kiểm tra đầy đủ và quy trình bổ sung. Có thể lưu bản tạm.');
   // Snapshot reads V2 state and legacy separately: deliberately PROVISIONAL only.
-  const report=await reportFor(req);if(report.nextCursor)D.fail('Thu hẹp kỳ/phạm vi để lưu đủ snapshot trong một trang.',413);
+  const report=await reportFor(req);if(report.nextCursor)D.fail('Thu hẹp kỳ/phạm vi để lưu đủ bản lưu báo cáo trong một trang.',413);
   ok(res,await transactOperations(id,s=>{const row={id:randomUUID(),branchId:id,status:'PROVISIONAL',createdBy:req.user.sub,createdAt:D.nowISO(),report};s.snapshots.push(row);D.auditV2(s,req.user,'REPORT_SNAPSHOT',row);return row}));
 });
 route('get','/operations/audit',async(req,res)=>{D.requirePermission(req.user,'AUDIT.VIEW');const limit=Math.min(200,Math.max(1,Number(req.query.limit)||100));ok(res,(await readOperations(branch(req))).audits.filter(r=>D.visible(req.user,r)).sort((a,b)=>b.at.localeCompare(a.at)).slice(0,limit))});

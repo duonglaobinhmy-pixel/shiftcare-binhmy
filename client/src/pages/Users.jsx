@@ -1,3 +1,4 @@
+import { displayLabel } from '../utils/display-labels';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -19,14 +20,7 @@ const PERMISSION_GROUPS = [
 const ACTION_LABELS = {
   VIEW: 'Xem', CREATE: 'Thêm', UPDATE: 'Sửa', DELETE: 'Xóa', SIGN: 'Ký giao',
   RECEIVE: 'Ký nhận', OVERRIDE: 'Sửa sau bàn giao', STOP: 'Ngừng y lệnh',
-  ADMINISTER: 'Thực hiện thuốc', EXPORT: 'Xuất file',
-};
-
-const ROLE_LABEL = {
-  ADMIN: 'Admin',
-  BRANCH_DIRECTOR: 'Giám đốc cơ sở',
-  CARE_SHARED: 'Tài khoản CSV dùng chung',
-  CSKH: 'Chăm sóc khách hàng',
+  ADMINISTER: 'Thực hiện thuốc', EXPORT: 'Xuất tệp',
 };
 
 const ROLE_CAPS = {
@@ -277,7 +271,7 @@ export default function Users() {
     e.target.value = '';
     if (!file) return;
     if (!staffBranchId) return setErr('Hãy chọn cơ sở trước khi tải Excel.');
-    if (!/\.xlsx$/i.test(file.name)) return setErr('Chỉ nhận file Excel .xlsx.');
+    if (!/\.xlsx$/i.test(file.name)) return setErr('Chỉ nhận tệp Excel .xlsx.');
     if (file.size > 5 * 1024 * 1024) return setErr('File Excel tối đa 5 MB.');
     setStaffBusy(true);
     setErr('');
@@ -285,7 +279,7 @@ export default function Users() {
       const fileBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(new Error('Không đọc được file Excel.'));
+        reader.onerror = () => reject(new Error('Không đọc được tệp Excel.'));
         reader.readAsDataURL(file);
       });
       const result = await api.importStaff({ branchId: staffBranchId, fileName: file.name, fileBase64 });
@@ -316,7 +310,7 @@ export default function Users() {
     <header className="page-head">
       <div>
         <h1>{isCSKH?'Nhân sự cơ sở':'Tài khoản & nhân sự'}</h1>
-        <p>{isCSKH?'Chỉ xem nhân sự của cơ sở được giao.':'Admin quản tài khoản. Giám đốc cơ sở quản danh sách nhân viên thực tế của đúng cơ sở mình.'}</p>
+        <p>{isCSKH?'Chỉ xem nhân sự của cơ sở được giao.':'Quản trị viên quản lý tài khoản. Giám đốc cơ sở quản danh sách nhân viên thực tế của đúng cơ sở mình.'}</p>
       </div>
       {isAdmin && <button onClick={showAccount ? resetAccountEditor : startCreateAccount}>{showAccount ? 'Đóng' : '+ Tạo tài khoản'}</button>}
     </header>
@@ -357,13 +351,13 @@ export default function Users() {
         <label>Username *<input disabled={!!editingId} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />{fieldErrors.username && <small className="field-error">{fieldErrors.username}</small>}</label>
         <label>{editingId ? 'Mật khẩu mới' : 'Mật khẩu *'}<input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />{fieldErrors.password && <small className="field-error">{fieldErrors.password}</small>}</label>
         <label>Tên hiển thị *<input value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />{fieldErrors.fullName && <small className="field-error">{fieldErrors.fullName}</small>}</label>
-        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Admin</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản CSV dùng chung</option><option value="CSKH">Chăm sóc khách hàng</option></select></label>
+        <label>Vai trò *<select value={form.role} onChange={e => changeRole(e.target.value)}><option value="ADMIN">Quản trị viên</option><option value="BRANCH_DIRECTOR">Giám đốc cơ sở</option><option value="CARE_SHARED">Tài khoản chăm sóc dùng chung</option><option value="CSKH">Chăm sóc khách hàng</option></select></label>
         {form.role !== 'ADMIN' && <label>Cơ sở *<select value={form.branchId} onChange={e => { const b = branches.find(x => String(x.id) === String(e.target.value)); setForm(current => ({ ...current, branchId: e.target.value, branchName: b?.name || '' })); }}><option value="">-- Chọn cơ sở --</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>{fieldErrors.branchId && <small className="field-error">{fieldErrors.branchId}</small>}</label>}
       </div>
 
-      {form.role === 'ADMIN' ? <div className="permission-section"><div className="permission-head"><div><h3>Admin</h3><p>Admin luôn có toàn quyền hệ thống. Không cần tick từng quyền.</p></div></div></div> :
+      {form.role === 'ADMIN' ? <div className="permission-section"><div className="permission-head"><div><h3>Quản trị viên</h3><p>Quản trị viên luôn có toàn quyền hệ thống. Không cần chọn từng quyền.</p></div></div></div> :
       <div className="permission-section">
-        <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>{form.role==='CSKH'?'CSKH luôn chỉ xem dashboard, báo cáo và nhân sự trong cơ sở; không cấp quyền thêm, sửa, xóa. Các quyền xem là bắt buộc.':'Role chỉ là trần quyền; quyền thực tế là những ô đang được tick.'}</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>
+        <div className="permission-head"><div><h3>Quyền chi tiết</h3><p>{form.role==='CSKH'?'CSKH luôn chỉ xem tổng quan, báo cáo và nhân sự trong cơ sở; không cấp quyền thêm, sửa, xóa. Các quyền xem là bắt buộc.':'Vai trò giới hạn các quyền có thể cấp; quyền thực tế là những ô đang được chọn.'}</p></div><button type="button" className="secondary" onClick={() => setForm(current => ({ ...current, permissions: [...(ROLE_DEFAULTS[current.role] || [])] }))}>Khôi phục mặc định</button></div>
         <div className="permission-matrix">{PERMISSION_GROUPS.map(group => {
           const cap = new Set(ROLE_CAPS[form.role] || []);
           const keys = group.actions.map(action => `${group.module}.${action}`).filter(key => cap.has(key));
@@ -377,9 +371,9 @@ export default function Users() {
     </form>}
 
     {isAdmin && <div className="panel">
-      <div className="permission-head"><div><h2>Tài khoản đăng nhập</h2><p>Mỗi cơ sở tối đa 1 Giám đốc hoạt động và 1 tài khoản CSV dùng chung hoạt động. CSKH có thể tạo nhiều tài khoản cá nhân, mỗi tài khoản gắn một cơ sở.</p></div></div>
+      <div className="permission-head"><div><h2>Tài khoản đăng nhập</h2><p>Mỗi cơ sở tối đa 1 Giám đốc hoạt động và 1 tài khoản chăm sóc dùng chung hoạt động. CSKH có thể tạo nhiều tài khoản cá nhân, mỗi tài khoản gắn một cơ sở.</p></div></div>
       {loading ? <div className="page-loading"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải tài khoản...</b></div></div> : <div className="table-wrap"><table><thead><tr><th>Tài khoản</th><th>Tên hiển thị</th><th>Vai trò</th><th>Cơ sở</th><th>Quyền</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
-        {rows.map(x => <tr key={x.id}><td><b>{x.username}</b></td><td>{x.fullName}</td><td>{ROLE_LABEL[x.role] || x.role}</td><td>{x.role === 'ADMIN' ? 'Toàn hệ thống' : (x.branchName || '—')}</td><td>{x.role === 'ADMIN' ? <span className="status-pill on">Toàn quyền</span> : <span>{Array.isArray(x.permissions) ? x.permissions.length : 0} quyền</span>}</td><td><span className={`status-pill ${x.active ? 'on' : 'off'}`}>{x.active ? 'Hoạt động' : 'Đã khóa'}</span></td><td><div className="actions"><button className="secondary" onClick={() => startEditAccount(x)}>Sửa quyền</button>{x.active ? <button className="secondary" onClick={() => deactivate(x)}>Khóa</button> : <button onClick={() => activate(x)}>Mở khóa</button>}{!x.active && <button className="danger" onClick={() => removeAccount(x)}>Xóa</button>}</div></td></tr>)}
+        {rows.map(x => <tr key={x.id}><td><b>{x.username}</b></td><td>{x.fullName}</td><td>{displayLabel('role',x.role)}</td><td>{x.role === 'ADMIN' ? 'Toàn hệ thống' : (x.branchName || '—')}</td><td>{x.role === 'ADMIN' ? <span className="status-pill on">Toàn quyền</span> : <span>{Array.isArray(x.permissions) ? x.permissions.length : 0} quyền</span>}</td><td><span className={`status-pill ${x.active ? 'on' : 'off'}`}>{x.active ? 'Hoạt động' : 'Đã khóa'}</span></td><td><div className="actions"><button className="secondary" onClick={() => startEditAccount(x)}>Sửa quyền</button>{x.active ? <button className="secondary" onClick={() => deactivate(x)}>Khóa</button> : <button onClick={() => activate(x)}>Mở khóa</button>}{!x.active && <button className="danger" onClick={() => removeAccount(x)}>Xóa</button>}</div></td></tr>)}
       </tbody></table></div>}
     </div>}
   </section>;

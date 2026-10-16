@@ -112,7 +112,7 @@ export default function StaffReports() {
       <header className="page-head report-page-head">
         <div>
           <h1>Lịch ca nhân viên</h1>
-          <p>Nhân sự theo ngày/đêm và số ca của từng người. Lịch bên dưới mở chi tiết mỗi ngày.</p>
+          <p>Nhân sự theo ca sáng / ca tối và số ca của từng người. Lịch bên dưới mở chi tiết mỗi ngày.</p>
         </div>
         <div className="actions report-top-actions">
           <button className="secondary" onClick={() => window.print()}>In / PDF</button>
@@ -165,13 +165,13 @@ export default function StaffReports() {
           <div className="stats report-kpis calendar-kpis">
             <div className="stat"><b>{summary.shiftCount || 0}</b><span>Ca trong tháng</span></div>
             <div className="stat"><b>{summary.staffCount || 0}</b><span>Nhân viên có trực</span></div>
-            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.dayCount,0)}</b><span>Lượt nhân sự trực ngày</span></div>
-            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.nightCount,0)}</b><span>Lượt nhân sự trực đêm</span></div>
+            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.dayCount,0)}</b><span>Lượt nhân sự trực ca sáng</span></div>
+            <div className="stat"><b>{staffStats.reduce((n,p)=>n+p.nightCount,0)}</b><span>Lượt nhân sự trực ca tối</span></div>
             <div className="stat success-stat"><b>{summary.handoverDone || 0}</b><span>Đã bàn giao</span></div>
           </div>
 
-          <ReportTrend title="Số nhân sự theo ngày / đêm" description="Mỗi nhân sự tính một lần cho mỗi loại ca trong ngày, theo ngày bắt đầu ca. Không đếm lại ca đêm khi có ghi nhận sau 0 giờ." rows={staffingTrend} unit="người" series={[{key:'day',label:'Trực ngày',color:'#2563eb'},{key:'night',label:'Trực đêm',color:'#7c3aed'}]}/>
-          <div className="panel"><h2>Số ca từng nhân sự</h2><p>Tính theo phân công và ngày bắt đầu ca trong tháng; số ca không phải số lượt ghi nhận.</p><div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Cơ sở</th><th>Tổng ca</th><th>Ca ngày</th><th>Ca đêm</th></tr></thead><tbody>{staffStats.map(p=><tr key={p.id}><td>{p.employeeCode}</td><td>{p.fullName}</td><td>{p.branchName}</td><td>{p.shiftCount}</td><td>{p.dayCount}</td><td>{p.nightCount}</td></tr>)}{!staffStats.length&&<tr><td colSpan="6">Không có phân công trong kỳ.</td></tr>}</tbody></table></div></div>
+          <ReportTrend title="Số nhân sự theo ca sáng / ca tối" description="Mỗi nhân sự tính một lần cho mỗi loại ca trong ngày, theo ngày bắt đầu ca. Không đếm lại ca tối khi có ghi nhận sau 0 giờ." rows={staffingTrend} unit="người" series={[{key:'day',label:'Trực ca sáng',color:'#2563eb'},{key:'night',label:'Trực ca tối',color:'#7c3aed'}]}/>
+          <div className="panel"><h2>Số ca từng nhân sự</h2><p>Tính theo phân công và ngày bắt đầu ca trong tháng; số ca không phải số lượt ghi nhận.</p><div className="table-wrap"><table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Cơ sở</th><th>Tổng ca</th><th>Ca sáng</th><th>Ca tối</th></tr></thead><tbody>{staffStats.map(p=><tr key={p.id}><td>{p.employeeCode}</td><td>{p.fullName}</td><td>{p.branchName}</td><td>{p.shiftCount}</td><td>{p.dayCount}</td><td>{p.nightCount}</td></tr>)}{!staffStats.length&&<tr><td colSpan="6">Không có phân công trong kỳ.</td></tr>}</tbody></table></div></div>
           <div className="panel staff-month-calendar-panel">
             <div className="panel-title">
               <div>

@@ -131,8 +131,8 @@ router.patch('/orders/:id', allowPermission('MEDICAL.UPDATE'), async (req, res) 
   const linkedShift = order.shiftId ? (store.shifts || []).find(x => x.id === order.shiftId) : null;
   const locked = linkedShift && linkedShift.status !== 'OPEN';
   const overrideReason = String(b.overrideReason || '').trim();
-  if (locked && req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Ca đã ký bàn giao; chỉ Admin được sửa y lệnh.' });
-  if (locked && !overrideReason) return res.status(422).json({ success: false, message: 'Admin phải nhập lý do sửa y lệnh sau bàn giao.' });
+  if (locked && req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Ca đã ký bàn giao; chỉ quản trị viên được sửa y lệnh.' });
+  if (locked && !overrideReason) return res.status(422).json({ success: false, message: 'Quản trị viên phải nhập lý do sửa y lệnh sau bàn giao.' });
   const morning = String(b.morning || '').trim();
   const noon = String(b.noon || '').trim();
   const evening = String(b.evening || '').trim();
@@ -164,7 +164,7 @@ router.delete('/orders/:id', allowPermission('MEDICAL.DELETE'), async (req, res)
   if (!order || !visible(req.user, order)) return res.status(404).json({ success: false, message: 'Không tìm thấy y lệnh.' });
   const linkedShift = order.shiftId ? (store.shifts || []).find(x => x.id === order.shiftId) : null;
   const locked = linkedShift && linkedShift.status !== 'OPEN';
-  if (locked && req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Ca đã ký bàn giao; chỉ Admin được xóa y lệnh.' });
+  if (locked && req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Ca đã ký bàn giao; chỉ quản trị viên được xóa y lệnh.' });
   let deleted;
   await updateStore(next => {
     deleted = (next.medicationOrders || []).find(x => x.id === order.id && !x.deleted);

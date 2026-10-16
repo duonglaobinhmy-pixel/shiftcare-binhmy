@@ -1,3 +1,4 @@
+import { displayLabel } from '../utils/display-labels';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -34,7 +35,7 @@ export default function Layout(){
 
   return <div className={`app-shell ${collapsed?'sidebar-collapsed':''}`}>
     <aside className="app-sidebar">
-      <button type="button" className="sidebar-edge-toggle" onClick={()=>setCollapsed(v=>!v)} title={collapsed?'Mở rộng menu':'Thu gọn menu'} aria-label={collapsed?'Mở rộng menu':'Thu gọn menu'}>{collapsed?'›':'‹'}</button>
+      <button type="button" className="sidebar-edge-toggle" onClick={()=>setCollapsed(v=>!v)} title={collapsed?'Mở rộng trình đơn':'Thu gọn trình đơn'} aria-label={collapsed?'Mở rộng trình đơn':'Thu gọn trình đơn'}>{collapsed?'›':'‹'}</button>
       <div className="sidebar-brand">
         <img src="/logo-binhmy.jpg" alt="Bình Mỹ Care" className="sidebar-logo"/>
         {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v10.10</span></div>}
@@ -47,7 +48,7 @@ export default function Layout(){
       </nav>
       <div className="sidebar-footer">
         {!collapsed?<>
-          <div className="sidebar-user-info"><strong>{user?.fullName||user?.username||'Người dùng'}</strong><span>{user?.role||''}</span><span>{user?.branchName||'Toàn hệ thống'}</span></div>
+          <div className="sidebar-user-info"><strong>{user?.fullName||user?.username||'Người dùng'}</strong><span>{displayLabel('role',user?.role,'')}</span><span>{user?.branchName||'Toàn hệ thống'}</span></div>
           <button type="button" className="sidebar-logout" onClick={logout}>Đăng xuất</button>
         </>:<>
           <div className="sidebar-user-avatar" title={user?.fullName||user?.username||'Người dùng'}>{String(user?.fullName||user?.username||'U').trim().charAt(0).toUpperCase()}</div>

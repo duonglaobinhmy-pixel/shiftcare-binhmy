@@ -179,7 +179,7 @@ function duplicateBranchRole(users, role, branchId, excludeId = null) {
 }
 
 router.post('/', allowPermission('USER.CREATE'), async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được tạo tài khoản đăng nhập.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được tạo tài khoản đăng nhập.' });
   try {
     const users = await getUsers();
     const body = req.body || {};
@@ -207,7 +207,7 @@ router.post('/', allowPermission('USER.CREATE'), async (req, res) => {
 });
 
 router.patch('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được sửa tài khoản đăng nhập.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được sửa tài khoản đăng nhập.' });
   try {
     const users = await getUsers();
     const idx = users.findIndex(u => String(u.id) === String(req.params.id));
@@ -246,7 +246,7 @@ router.patch('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
 });
 
 router.delete('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được khóa tài khoản.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được khóa tài khoản.' });
   const users = await getUsers();
   const user = users.find(u => String(u.id) === String(req.params.id));
   if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
@@ -260,7 +260,7 @@ router.delete('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
 });
 
 router.post('/:id/activate', allowPermission('USER.UPDATE'), async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được mở khóa tài khoản.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được mở khóa tài khoản.' });
   const users = await getUsers();
   const user = users.find(u => String(u.id) === String(req.params.id));
   if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
@@ -276,7 +276,7 @@ router.post('/:id/activate', allowPermission('USER.UPDATE'), async (req, res) =>
 });
 
 router.delete('/:id/permanent', allowPermission('USER.DELETE'), async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ Admin được xóa vĩnh viễn tài khoản.' });
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được xóa vĩnh viễn tài khoản.' });
   const users = await getUsers();
   const idx = users.findIndex(u => String(u.id) === String(req.params.id));
   if (idx < 0) return res.status(404).json({ success: false, message: 'Không tìm thấy user.' });
@@ -285,7 +285,7 @@ router.delete('/:id/permanent', allowPermission('USER.DELETE'), async (req, res)
   if (user.active) return res.status(422).json({ success: false, message: 'Phải khóa tài khoản trước khi xóa vĩnh viễn.' });
   if (String(req.body?.confirmUsername || '') !== user.username) return res.status(422).json({ success: false, message: 'Xác nhận username không khớp.' });
   if (user.role === 'ADMIN' && users.filter(u => u.role === 'ADMIN' && u.active !== false && u.id !== user.id).length < 1) {
-    return res.status(422).json({ success: false, message: 'Hệ thống phải còn ít nhất một Admin hoạt động.' });
+    return res.status(422).json({ success: false, message: 'Hệ thống phải còn ít nhất một quản trị viên hoạt động.' });
   }
   users.splice(idx, 1);
   await saveUsers(users);

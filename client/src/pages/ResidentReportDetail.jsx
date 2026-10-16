@@ -1,3 +1,4 @@
+import { displayLabel } from '../utils/display-labels';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import ReportTrend from '../components/ReportTrend';
@@ -5,16 +6,6 @@ import { api } from '../services/api';
 import { newestFirst, downloadDetailCsv } from '../utils/report-export';
 
 const VN_TZ = 'Asia/Ho_Chi_Minh';
-const catLabel = {
-  HEALTH: 'Sức khỏe',
-  NUTRITION: 'Dinh dưỡng / ăn uống',
-  PSYCHOLOGY: 'Tâm lý / hành vi',
-  SKIN: 'Ngoài da',
-  INCIDENT: 'Ngã / sự cố',
-  OTHER: 'Khác'
-};
-const bowelLabel = { NORMAL: 'Bình thường', CONSTIPATION: 'Táo bón', DIARRHEA: 'Tiêu chảy', OTHER: 'Khác' };
-const urineLabel = { NORMAL: 'BT', SONDE: 'Qua sonde', CATHETER: 'Qua ống tiểu', DIAPER: 'Qua tã', OTHER: 'Khác', LOW: 'Tiểu ít', NONE: 'Không tiểu' };
 
 function formatDate(v) {
   if (!v) return '—';
@@ -42,12 +33,12 @@ function dateKey(v) {
 function vitalText(v) {
   if (!v) return [];
   return [
-    v.pulse != null && `Mạch ${v.pulse}`,
-    v.temperature != null && `Nhiệt ${v.temperature}°C`,
-    v.bpSys != null && v.bpDia != null && `HA ${v.bpSys}/${v.bpDia}`,
+    v.pulse != null && `Mạch ${v.pulse} lần/phút`,
+    v.temperature != null && `Nhiệt độ ${v.temperature}°C`,
+    v.bpSys != null && v.bpDia != null && `Huyết áp ${v.bpSys}/${v.bpDia} mmHg`,
     v.spo2 != null && `SpO₂ ${v.spo2}%`,
-    v.respiratoryRate != null && `Thở ${v.respiratoryRate}`,
-    v.bloodGlucose != null && `ĐH ${v.bloodGlucose} mg/dL`,
+    v.respiratoryRate != null && `Nhịp thở ${v.respiratoryRate} lần/phút`,
+    v.bloodGlucose != null && `Đường huyết ${v.bloodGlucose} mg/dL`,
     v.insulinDoseUnits != null && `Insulin ${v.insulinDoseUnits} IU`
   ].filter(Boolean);
 }
@@ -138,7 +129,7 @@ export default function ResidentReportDetail() {
   }, [data, reportVitalHistory]);
 
   const summary = data?.summary || {};
-  const metrics={temperature:['Nhiệt độ','°C'],pulse:['Mạch','lần/phút'],bpSys:['HA tâm thu','mmHg'],bpDia:['HA tâm trương','mmHg'],spo2:['SpO₂','%'],respiratoryRate:['Nhịp thở','lần/phút'],bloodGlucose:['Đường huyết','mg/dL']};
+  const metrics={temperature:['Nhiệt độ','°C'],pulse:['Mạch','lần/phút'],bpSys:['Huyết áp tâm thu','mmHg'],bpDia:['Huyết áp tâm trương','mmHg'],spo2:['SpO₂','%'],respiratoryRate:['Nhịp thở','lần/phút'],bloodGlucose:['Đường huyết','mg/dL']};
   const vitalTrend=[...reportVitalHistory].reverse().map(c=>({at:c.occurredAt||c.createdAt,label:formatDateTime(c.occurredAt||c.createdAt),value:c.vitals?.[vitalKey]??null}));
   function changePeriod(key,value){const q=new URLSearchParams(searchParams);q.set(key,value);setSearchParams(q,{replace:true});setAllHistory(false);}
   const rangeLabel = allHistory ? 'Toàn bộ lịch sử đã lưu' : from === to ? formatDate(from) : `${formatDate(from)} → ${formatDate(to)}`;
@@ -262,7 +253,7 @@ export default function ResidentReportDetail() {
                           <div className="resident-event-time">{formatDateTime(row.at)}</div>
                           <div className="resident-event-content">
                             <div className="resident-event-title">
-                              <b>📝 {catLabel[c.category] || c.category || 'Biến động'}</b>
+                              <b>📝 {displayLabel('category', c.category, 'Biến động')}</b>
                               {c.attentionLevel && <span className={`attention-status ${c.attentionLevel}`}>{c.attentionLevel}</span>}
                               {c.attentionStatus === 'RESOLVED' && <span className="resident-resolved-chip">Đã xử lý</span>}
                             </div>
@@ -297,7 +288,7 @@ export default function ResidentReportDetail() {
                           <div className="resident-event-time">{formatDateTime(row.at)}</div>
                           <div className="resident-event-content">
                             <div className="resident-event-title"><b>🚽 Tiêu / tiểu</b></div>
-                            <p><b>Tiêu:</b> {bowelLabel[t.bowelStatus] || t.bowelStatus || '—'} · <b>Tiểu:</b> {urineLabel[t.urineStatus] || t.urineStatus || '—'}</p>
+                            <p><b>Tiêu:</b> {displayLabel('bowel', t.bowelStatus)} · <b>Tiểu:</b> {displayLabel('urine', t.urineStatus)}</p>
                             {[t.urineDetail, t.note].filter(Boolean).length > 0 && <small>{[t.urineDetail, t.note].filter(Boolean).join(' · ')}</small>}
                             <small>Người ghi: {t.createdByName || '—'}</small>
                           </div>

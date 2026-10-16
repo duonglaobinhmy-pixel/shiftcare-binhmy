@@ -638,7 +638,7 @@ export async function replaceShiftRosterFast(shift,items){
   const count=await withTransaction(async db=>{
     const locked=await db.query(`SELECT s.id FROM shifts s WHERE s.id=$1 AND s.status='OPEN'
       AND NOT EXISTS(SELECT 1 FROM handovers h WHERE h.shift_id=s.id AND (h.confirmed_at IS NOT NULL OR h.received_at IS NOT NULL)) FOR UPDATE`,[shift.id]);
-    if(!locked.rowCount)throw Object.assign(new Error('Ca đã khóa hoặc đã ký trong lúc tải roster.'),{status:409});
+    if(!locked.rowCount)throw Object.assign(new Error('Ca đã khóa hoặc đã ký trong lúc tải danh sách NCT.'),{status:409});
     return writeRosterRows(db,shift,items);
   });
   invalidateStoreCache();

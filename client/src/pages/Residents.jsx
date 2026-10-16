@@ -27,7 +27,7 @@ export default function Residents(){
       <label><span>4. Hiển thị</span><select value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}><option value={10}>10 NCT</option><option value={20}>20 NCT</option><option value={50}>50 NCT</option><option value={100}>100 NCT</option></select></label>
       <div className="search-action"><input autoFocus placeholder="Gõ tên NCT, mã, phòng hoặc giường..." value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')loadResidents(1)}}/><button onClick={()=>loadResidents(1)}>Tìm toàn bộ NCT</button></div>
     </div>
-    {err&&<div className="error">{err}</div>}{data.mockReason&&<div className="warn">Mock fallback: {data.mockReason}</div>}
+    {err&&<div className="error">{err}</div>}{data.mockReason&&<div className="warn">Đang dùng dữ liệu mô phỏng: {data.mockReason}</div>}
     <div className="resident-grid">{items.map(x=><button type="button" className="resident-card" key={x.id} onClick={()=>openResident(x)} disabled={opening===x.id}>
       <div className="avatar big">{x.image?<img src={x.image}/>:x.fullName?.slice(0,1)}</div><div className="resident-card-body"><b>{x.fullName}</b><small>{x.code} • {x.yearofBirth||'—'}</small><span>{x.branchName||'—'}</span><span>{x.areaName||'—'} • {x.roomName||'—'} • {x.bedName||'—'}</span></div><strong>{opening===x.id?'Đang mở...':canWrite?'Nhập biến động →':'Xem ca →'}</strong>
     </button>)}</div>

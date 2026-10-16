@@ -1,8 +1,9 @@
+import { displayLabel } from '../utils/display-labels';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 
-const shiftLabel = t => t === 'MORNING' ? 'Ca sáng' : t === 'NIGHT' ? 'Ca tối' : (t || 'Ca');
+const shiftLabel = t => displayLabel('shiftType', t, 'Ca');
 
 function formatDate(v) {
   if (!v) return '—';
@@ -22,7 +23,7 @@ function timeVN(value) {
 function levelText(level) {
   if (level === 'RED') return 'ĐỎ';
   if (level === 'YELLOW') return 'VÀNG';
-  return 'THƯỜNG';
+  return displayLabel('alert', level);
 }
 
 export default function StaffReportDay() {
@@ -141,17 +142,17 @@ export default function StaffReportDay() {
                                 <b>{c.residentName || 'NCT'}</b>
                                 {c.attentionLevel && <span className={`activity-level ${c.attentionLevel}`}>{levelText(c.attentionLevel)}</span>}
                               </div>
-                              <small>{c.category || '—'} · {c.eventType || '—'}</small>
+                              <small>{displayLabel('category', c.category)} · {displayLabel('event', c.eventType)}</small>
                               <p>{c.content || '—'}</p>
                               {c.intervention && <div className="activity-action"><b>Xử lý:</b> {c.intervention}</div>}
                               {c.vitals && (
                                 <div className="activity-vitals">
-                                  {c.vitals.pulse != null && <span>Mạch {c.vitals.pulse}</span>}
-                                  {c.vitals.temperature != null && <span>Nhiệt {c.vitals.temperature}°C</span>}
-                                  {c.vitals.bpSys != null && c.vitals.bpDia != null && <span>HA {c.vitals.bpSys}/{c.vitals.bpDia}</span>}
+                                  {c.vitals.pulse != null && <span>Mạch {c.vitals.pulse} lần/phút</span>}
+                                  {c.vitals.temperature != null && <span>Nhiệt độ {c.vitals.temperature}°C</span>}
+                                  {c.vitals.bpSys != null && c.vitals.bpDia != null && <span>Huyết áp {c.vitals.bpSys}/{c.vitals.bpDia} mmHg</span>}
                                   {c.vitals.spo2 != null && <span>SpO₂ {c.vitals.spo2}%</span>}
-                                  {c.vitals.respiratoryRate != null && <span>Thở {c.vitals.respiratoryRate}</span>}
-                                  {c.vitals.bloodGlucose != null && <span>ĐH {c.vitals.bloodGlucose}</span>}
+                                  {c.vitals.respiratoryRate != null && <span>Nhịp thở {c.vitals.respiratoryRate} lần/phút</span>}
+                                  {c.vitals.bloodGlucose != null && <span>Đường huyết {c.vitals.bloodGlucose} mg/dL</span>}
                                 </div>
                               )}
                               {!!c.imageCount && <small>📷 {c.imageCount} ảnh thêm</small>}
@@ -171,7 +172,7 @@ export default function StaffReportDay() {
                             <div className="day-activity-time">{timeVN(t.createdAt)}</div>
                             <div className="day-activity-main">
                               <b>{t.residentName || 'NCT'}</b>
-                              <p>Tiêu: {t.bowelStatus || '—'} · Tiểu: {t.urineStatus || '—'}</p>
+                              <p>Tiêu: {displayLabel('bowel', t.bowelStatus)} · Tiểu: {displayLabel('urine', t.urineStatus)}</p>
                               {t.urineDetail && <small>{t.urineDetail}</small>}
                               {t.note && <small>Ghi chú: {t.note}</small>}
                             </div>

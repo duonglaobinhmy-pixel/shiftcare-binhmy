@@ -1,9 +1,10 @@
+import { displayLabel } from '../utils/display-labels';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const label = type => ({ MORNING: 'Ca sáng', AFTERNOON: 'Ca chiều', NIGHT: 'Ca tối' }[type] || type);
+const label = type => displayLabel('shiftType',type);
 const todayVN = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 const freshForm = user => ({
   shiftDate: todayVN(), shiftType: 'MORNING',
@@ -160,7 +161,7 @@ export default function Shifts() {
     try {
       const r = await api.refreshShiftRoster(row.id);
       const count=Number(r?.data?.residentCount||0);
-      setInfo(count ? `Đã nạp roster cho ${label(row.shiftType)}: ${count} NCT (giữ NCT đã có ghi nhận).` : 'BCARE trả 0 NCT cho bộ lọc của ca này.');
+      setInfo(count ? `Đã nạp danh sách NCT cho ${label(row.shiftType)}: ${count} NCT (giữ NCT đã có ghi nhận).` : 'BCARE trả 0 NCT cho bộ lọc của ca này.');
       await load();
     } catch (e) {
       setErr(e.message);
@@ -218,8 +219,8 @@ export default function Shifts() {
     </form>}
 
     {loading ? <div className="page-loading" role="status" aria-live="polite"><div className="page-loading-card"><span className="loading-spinner"/><b>Đang tải ca chăm sóc...</b><small>Đang tải trang {listQuery.page}, tối đa {listQuery.pageSize} ca.</small></div></div> : <div className="cards">{rows.map(x => <div className={`shift-card operational ${Number(x.residentCount || 0) === 0 ? 'roster-empty' : ''}`} key={x.id}>
-      <div><b>{x.shiftDate === today ? 'Hôm nay • ' : ''}{label(x.shiftType)}</b><span>{x.branchName}</span><small>{x.areaName || 'Toàn cơ sở'} • <b>{x.residentCount ?? 0} NCT</b></small><small><b>Nhân sự:</b> {(x.assignedStaff || []).length ? x.assignedStaff.map(s => `${s.fullName} (${s.employeeCode || s.username || '—'})`).join(', ') : 'Ca cũ chưa phân công'}</small><small><b>Người ghi chính:</b> {x.primaryRecorderName || x.assignedStaffName || 'Chưa chọn'}</small>{Number(x.residentCount || 0) === 0 && <small className="roster-warning">Chưa có NCT trong roster — nạp lại từ BCARE.</small>}</div>
-      <div className="shift-enter"><span className={`badge ${x.status}`}>{x.status}</span><Link className="shift-open-link" to={`/shifts/${x.id}`}>{x.status === 'OPEN' ? 'Vào ca →' : 'Xem ca →'}</Link><Link className="button-link secondary" to={`/shift-history/${encodeURIComponent(x.id)}`}>Báo cáo chi tiết</Link>{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" disabled={refreshingId === x.id} onClick={() => refreshRoster(x)}>{refreshingId === x.id ? 'Đang nạp...' : '↻ Nạp lại NCT'}</button>}{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" onClick={() => editStaff(x)}>Sửa nhân sự</button>}{canDelete && <button className="danger compact-button" onClick={() => removeShift(x)}>Xóa ca</button>}</div>
+      <div><b>{x.shiftDate === today ? 'Hôm nay • ' : ''}{label(x.shiftType)}</b><span>{x.branchName}</span><small>{x.areaName || 'Toàn cơ sở'} • <b>{x.residentCount ?? 0} NCT</b></small><small><b>Nhân sự:</b> {(x.assignedStaff || []).length ? x.assignedStaff.map(s => `${s.fullName} (${s.employeeCode || s.username || '—'})`).join(', ') : 'Ca cũ chưa phân công'}</small><small><b>Người ghi chính:</b> {x.primaryRecorderName || x.assignedStaffName || 'Chưa chọn'}</small>{Number(x.residentCount || 0) === 0 && <small className="roster-warning">Chưa có NCT trong danh sách ca — nạp lại từ BCARE.</small>}</div>
+      <div className="shift-enter"><span className={`badge ${x.status}`}>{displayLabel('shiftStatus',x.status)}</span><Link className="shift-open-link" to={`/shifts/${x.id}`}>{x.status === 'OPEN' ? 'Vào ca →' : 'Xem ca →'}</Link><Link className="button-link secondary" to={`/shift-history/${encodeURIComponent(x.id)}`}>Báo cáo chi tiết</Link>{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" disabled={refreshingId === x.id} onClick={() => refreshRoster(x)}>{refreshingId === x.id ? 'Đang nạp...' : '↻ Nạp lại NCT'}</button>}{canUpdate && x.status === 'OPEN' && <button className="secondary compact-button" onClick={() => editStaff(x)}>Sửa nhân sự</button>}{canDelete && <button className="danger compact-button" onClick={() => removeShift(x)}>Xóa ca</button>}</div>
     </div>)}</div>}
     {!loading && !err && !rows.length && <div className="empty shift-empty"><b>Chưa có ca trong phạm vi này.</b><span>Tạo ca, chọn tối thiểu 2 nhân sự </span></div>}
   </section>;
