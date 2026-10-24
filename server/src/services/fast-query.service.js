@@ -129,7 +129,7 @@ export async function getShiftDetailFast(user,id){
   const eventMap=new Map();for(const event of events.rows){const codes=eventMap.get(event.care_record_id)||[];codes.push(event.event_code);eventMap.set(event.care_record_id,codes)}
   const categories=cr.rows.length?await db.query(`SELECT care_record_id,category_code FROM care_record_categories WHERE care_record_id=ANY($1::text[]) ORDER BY category_code`,[cr.rows.map(x=>x.id)]):{rows:[]};
   const categoryMap=new Map();for(const category of categories.rows){const codes=categoryMap.get(category.care_record_id)||[];codes.push(category.category_code);categoryMap.set(category.care_record_id,codes)}
-  const imgMap=new Map();for(const i of images.rows){const a=imgMap.get(i.care_record_id)||[];let url=null;if(i.object_key){try{url=await getSignedWoundImageUrl(i.object_key,900)}catch{}}a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||'',sizeBytes:i.size_bytes||null,createdAt:iso(i.created_at),expiresAt:iso(i.expires_at)});imgMap.set(i.care_record_id,a)}
+  const imgMap=new Map();for(const i of images.rows){const a=imgMap.get(i.care_record_id)||[];let url=null;if(i.object_key){try{url=await getSignedWoundImageUrl(i.object_key,900)}catch{}}a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||'',sizeBytes:i.size_bytes??null,width:i.width??null,height:i.height??null,createdAt:iso(i.created_at),expiresAt:iso(i.expires_at)});imgMap.set(i.care_record_id,a)}
   const residents=rr.rows.map(x=>({id:x.id,shiftId:x.shift_id,residentId:x.bcare_resident_id,code:x.code_snapshot,fullName:x.full_name_snapshot,branchId:x.branch_id,branchName:x.branch_name_snapshot,areaId:x.area_id_snapshot,areaName:x.area_name_snapshot,roomId:x.room_id_snapshot,roomName:x.room_name_snapshot,bedName:x.bed_name_snapshot,image:x.image_snapshot,derivedStatus:x.derived_status}));
   const changes=cr.rows.map(mapCareRow).map(x=>({...x,eventCodes:eventMap.get(x.id)||[x.eventType],categoryCodes:categoryMap.get(x.id)||[x.category],woundImages:imgMap.get(x.id)||[]}));
   const toileting=tr.rows.map(mapToiletRow);
@@ -228,7 +228,7 @@ export async function getReportBundleFast(user,{from,to,branchId='',residentId='
       const a=im.get(i.care_record_id)||[];
       let url=null;
       if(i.object_key){try{url=await getSignedWoundImageUrl(i.object_key,900)}catch{}}
-      a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||'',sizeBytes:i.size_bytes||null,createdAt:iso(i.created_at),expiresAt:iso(i.expires_at)});
+      a.push({id:i.id,objectKey:i.object_key||null,dataUrl:url,url,mimeType:i.mime_type||'',sizeBytes:i.size_bytes??null,width:i.width??null,height:i.height??null,createdAt:iso(i.created_at),expiresAt:iso(i.expires_at)});
       im.set(i.care_record_id,a);
     }
     for(const c of changes)c.woundImages=im.get(c.id)||[];

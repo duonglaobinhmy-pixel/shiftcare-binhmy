@@ -549,7 +549,32 @@ router.post('/change-logs/:id/restore',allowPermission('CARE.DELETE'),async(req,
 router.delete('/change-logs/:id',allowPermission('CARE.DELETE'),async(req,res)=>{if(req.user.role!=='ADMIN')return res.status(403).json({success:false,message:'Chỉ quản trị viên được xóa bản ghi chăm sóc.'});const reason=String(req.body?.reason||'').trim();if(!reason)return res.status(422).json({success:false,message:'Quản trị viên phải nhập lý do xóa để lưu nhật ký hệ thống.'});let found=null;await updateStore(store=>{found=store.changeLogs.find(x=>x.id===req.params.id);if(found){found.deleted=true;found.deletedAt=new Date().toISOString();found.deletedBy=req.user.sub;found.deleteReason=reason}});if(!found)return res.status(404).json({success:false,message:'Không tìm thấy bản ghi'});await audit(req.user,'CHANGE_SOFT_DELETE','change_log',found.id,{reason});res.json({success:true})});
 
 router.post('/toileting-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
-  const b=req.body||{},s=await getStore(),shift=s.shifts.find(x=>x.id===b.shiftId);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Ca không hợp lệ hoặc bạn không thuộc ca trực'});const duplicate=b.clientRequestId&&s.toiletingLogs.find(x=>x.clientRequestId===b.clientRequestId&&x.createdBy===req.user.sub);if(duplicate)return res.json({success:true,data:duplicate,duplicate:true});if(!careUnlocked(s,shift))return res.status(422).json({success:false,message:'Ca đã ký bàn giao nên bị khóa, không thể thêm ghi nhận.'});if(!b.residentId)return res.status(400).json({success:false,message:'Thiếu NCT'});if(!bowelStatuses.has(b.bowelStatus||'NORMAL'))return res.status(422).json({success:false,message:'Trạng thái tiêu không hợp lệ.'});if(!urineStatuses.has(b.urineStatus||'NORMAL'))return res.status(422).json({success:false,message:'Trạng thái tiểu không hợp lệ.'});if(b.urineStatus==='OTHER'&&!String(b.urineDetail||'').trim())return res.status(422).json({success:false,message:'Vui lòng mô tả tình trạng tiểu khi chọn Khác.'});const row={id:uuid(),clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:b.residentName||'',bowelStatus:b.bowelStatus||'NORMAL',urineStatus:b.urineStatus||'NORMAL',urineDetail:b.urineStatus==='OTHER'?String(b.urineDetail||'').trim():'',note:String(b.note||'').trim(),branchId:shift.branchId,areaId:b.areaId||shift.areaId||null,areaName:b.areaName||'',roomName:b.roomName||'',bedName:b.bedName||'',image:b.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};await updateStore(store=>{const currentShift=store.shifts.find(x=>x.id===row.shiftId);if(!currentShift||!canAccessShift(req.user,currentShift)||!careUnlocked(store,currentShift)){const error=new Error('Ca đã khóa hoặc không còn quyền ghi.');error.status=409;throw error}const existing=row.clientRequestId&&store.toiletingLogs.find(x=>x.clientRequestId===row.clientRequestId&&x.createdBy===row.createdBy);if(existing){Object.assign(row,existing);return}store.toiletingLogs.unshift(row)});await audit(req.user,'TOILETING_CREATE','toileting_log',row.id,{residentId:row.residentId,urineStatus:row.urineStatus});res.status(201).json({success:true,data:row});
+  const b=req.body||{};
+  if(!b.residentId)return res.status(400).json({success:false,message:'Thiếu NCT'});
+  if(!bowelStatuses.has(b.bowelStatus||'NORMAL'))return res.status(422).json({success:false,message:'Trạng thái tiêu không hợp lệ.'});
+  if(!urineStatuses.has(b.urineStatus||'NORMAL'))return res.status(422).json({success:false,message:'Trạng thái tiểu không hợp lệ.'});
+  if(b.urineStatus==='OTHER'&&!String(b.urineDetail||'').trim())return res.status(422).json({success:false,message:'Vui lòng mô tả tình trạng tiểu khi chọn Khác.'});
+  let row,duplicate=false;
+  await updateStore(store=>{
+    const shift=store.shifts.find(x=>x.id===b.shiftId);
+    if(!shift||!canAccessShift(req.user,shift))throw Object.assign(new Error('Ca không hợp lệ hoặc bạn không thuộc ca trực'),{status:404});
+    const existing=b.clientRequestId&&store.toiletingLogs.find(x=>x.clientRequestId===b.clientRequestId&&x.createdBy===req.user.sub);
+    if(existing){
+      if(String(existing.shiftId)!==String(shift.id)||String(existing.residentId)!==String(b.residentId))throw Object.assign(new Error('Mã gửi lại đã thuộc ghi nhận khác. Vui lòng tải lại trước khi lưu.'),{status:409});
+      row=existing;duplicate=true;return;
+    }
+    if(!careUnlocked(store,shift))throw Object.assign(new Error('Ca đã ký bàn giao nên bị khóa, không thể thêm ghi nhận.'),{status:422});
+    const resident=store.shiftResidents.find(x=>String(x.shiftId)===String(shift.id)&&String(x.residentId)===String(b.residentId)&&visibleByScope(req.user,x)&&String(x.branchId)===String(shift.branchId));
+    if(!resident)throw Object.assign(new Error('NCT không thuộc danh sách ca này.'),{status:422});
+    row={id:uuid(),clientRequestId:String(b.clientRequestId||''),shiftId:shift.id,residentId:resident.residentId,
+      residentName:resident.fullName||resident.residentName||'',bowelStatus:b.bowelStatus||'NORMAL',urineStatus:b.urineStatus||'NORMAL',
+      urineDetail:b.urineStatus==='OTHER'?String(b.urineDetail||'').trim():'',note:String(b.note||'').trim(),
+      branchId:shift.branchId,areaId:resident.areaId||shift.areaId||null,areaName:resident.areaName||'',roomName:resident.roomName||'',bedName:resident.bedName||'',image:resident.image||'',
+      createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};
+    store.toiletingLogs.unshift(row);
+  });
+  if(!duplicate)await audit(req.user,'TOILETING_CREATE','toileting_log',row.id,{residentId:row.residentId,urineStatus:row.urineStatus});
+  res.status(duplicate?200:201).json({success:true,data:row,...(duplicate?{duplicate:true}:{})});
 });
 
 router.patch('/toileting-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)=>{
@@ -592,9 +617,39 @@ router.post('/shifts/:id/handover/confirm',allowPermission('HANDOVER.SIGN'),asyn
   const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực'});if(shift.status!=='OPEN')return res.status(422).json({success:false,message:'Ca chưa ở trạng thái mở để ký bàn giao.'});if(!req.body?.confirm)return res.status(422).json({success:false,message:'Chưa xác nhận đã rà soát ca.'});const assigned=Array.isArray(shift.assignedStaff)?shift.assignedStaff:[];if(assigned.length<2)return res.status(422).json({success:false,message:'Ca chưa đủ tối thiểu 2 nhân sự nên không được ký bàn giao.'});const selectedIds=[...new Set((Array.isArray(req.body?.participantIds)?req.body.participantIds:[]).map(String))];const assignedIds=assigned.map(x=>x.id);if(selectedIds.length!==assignedIds.length||assignedIds.some(id=>!selectedIds.includes(id)))return res.status(422).json({success:false,message:'Phải chọn xác nhận đầy đủ tất cả nhân sự đã được phân công trong ca.'});let handover;const confirmedAt=new Date().toISOString();await updateStore(store=>{const storedShift=store.shifts.find(x=>x.id===shift.id);if(!storedShift)throw new Error('Ca không còn tồn tại.');if(storedShift.status!=='OPEN'){const error=new Error('Ca đã khóa hoặc đã bàn giao.');error.status=409;throw error}if((storedShift.assignedStaff||[]).length!==selectedIds.length||(storedShift.assignedStaff||[]).some(x=>!selectedIds.includes(x.id))){const error=new Error('Phân công đã thay đổi; tải lại ca trước khi ký.');error.status=409;throw error}handover=store.handovers.find(x=>x.shiftId===shift.id);if(!handover){handover={id:uuid(),shiftId:shift.id,branchId:shift.branchId,version:1};store.handovers.push(handover)}handover.summaryNote=req.body?.note||'';handover.confirmedBy=req.user.sub;handover.confirmedByName=req.user.fullName;handover.confirmedAt=confirmedAt;handover.participants=assigned.map(x=>({userId:x.id,username:x.username,employeeCode:x.employeeCode||x.username,fullName:x.fullName,acknowledged:true,acknowledgedAt:confirmedAt,recordedBy:req.user.sub}));storedShift.status='HANDOVER_CONFIRMED';storedShift.lockedAt=confirmedAt;storedShift.lockedBy=req.user.sub});await audit(req.user,'HANDOVER_CONFIRM','handover',handover.id,{participantIds:selectedIds,participantNames:assigned.map(x=>x.fullName)});res.json({success:true,data:handover});
 });
 router.post('/shifts/:id/handover/receive',allowPermission('HANDOVER.RECEIVE'),async(req,res)=>{
-  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực'});const existing=s.handovers.find(x=>x.shiftId===shift.id);if(!existing?.confirmedAt)return res.status(422).json({success:false,message:'Ca chưa được ký bàn giao'});if(!req.body?.confirm)return res.status(422).json({success:false,message:'Chưa xác nhận đã nhận bàn giao.'});let handover;await updateStore(store=>{const storedShift=store.shifts.find(x=>x.id===shift.id);if(!storedShift)throw new Error('Ca không còn tồn tại.');handover=store.handovers.find(x=>x.shiftId===shift.id);handover.receivedBy=req.user.sub;handover.receivedByName=req.user.fullName;handover.receivedAt=new Date().toISOString();storedShift.status='RECEIVED'});await audit(req.user,'HANDOVER_RECEIVE','handover',handover.id);res.json({success:true,data:handover});
+  if(req.body?.confirm!==true)return res.status(422).json({success:false,message:'Chưa xác nhận đã nhận bàn giao.'});
+  const s=await getStore(),shift=s.shifts.find(x=>x.id===req.params.id);
+  if(!shift||!canAccessShift(req.user,shift))return res.status(404).json({success:false,message:'Không tìm thấy ca hoặc bạn không thuộc ca trực'});
+  const existing=s.handovers.find(x=>x.shiftId===shift.id);
+  if(!existing?.confirmedAt)return res.status(422).json({success:false,message:'Ca chưa được ký bàn giao'});
+  let handover,duplicate=false;
+  await updateStore(store=>{
+    const storedShift=store.shifts.find(x=>x.id===shift.id);
+    if(!storedShift||!canAccessShift(req.user,storedShift))throw Object.assign(new Error('Không tìm thấy ca trong cơ sở được giao.'),{status:404});
+    handover=store.handovers.find(x=>x.shiftId===storedShift.id);
+    if(!handover?.confirmedAt)throw Object.assign(new Error('Ca chưa được ký bàn giao.'),{status:422});
+    if(handover.receivedAt){
+      if(String(handover.receivedBy)!==String(req.user.sub))throw Object.assign(new Error('Ca đã có người nhận bàn giao. Không được ghi đè người nhận.'),{status:409});
+      duplicate=true;return;
+    }
+    if(storedShift.status!=='HANDOVER_CONFIRMED')throw Object.assign(new Error('Trạng thái ca đã thay đổi; tải lại trước khi nhận bàn giao.'),{status:409});
+    handover.receivedBy=req.user.sub;handover.receivedByName=req.user.fullName;handover.receivedAt=new Date().toISOString();
+    storedShift.status='RECEIVED';
+  });
+  if(!duplicate)await audit(req.user,'HANDOVER_RECEIVE','handover',handover.id);
+  res.json({success:true,data:handover,...(duplicate?{duplicate:true}:{})});
 });
-router.post('/shifts/:id/close',allowPermission('SHIFT.UPDATE'),async(req,res)=>{let shift;await updateStore(store=>{shift=store.shifts.find(x=>x.id===req.params.id);if(shift&&visibleByScope(req.user,shift))shift.status='CLOSED'});if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});await audit(req.user,'SHIFT_CLOSE','shift',shift.id);res.json({success:true,data:shift})});
+router.post('/shifts/:id/close',allowPermission('SHIFT.UPDATE'),async(req,res)=>{
+  let shift;
+  await updateStore(store=>{
+    shift=store.shifts.find(x=>x.id===req.params.id&&visibleByScope(req.user,x));
+    if(!shift)return;
+    shift.status='CLOSED';
+  });
+  if(!shift)return res.status(404).json({success:false,message:'Không tìm thấy ca'});
+  await audit(req.user,'SHIFT_CLOSE','shift',shift.id);
+  res.json({success:true,data:shift});
+});
 
 router.get('/reports',allowPermission('REPORT.VIEW'),async(req,res)=>{
   const range=reportRange(req.query),branchId=req.user.role==='ADMIN'?String(req.query.branchId||''):String(req.user.branchId||'');

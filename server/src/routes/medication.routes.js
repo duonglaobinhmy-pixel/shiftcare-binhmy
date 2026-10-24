@@ -9,8 +9,7 @@ router.use(authenticate);
 
 function visible(user, row) {
   if (user.role === 'ADMIN') return true;
-  if (row.branchId && row.branchId !== user.branchId) return false;
-  return true;
+  return Boolean(user.branchId && row.branchId) && String(row.branchId) === String(user.branchId);
 }
 
 function requiredText(value, label) {
@@ -58,6 +57,12 @@ router.get('/report', allowPermission('REPORT.VIEW'), async (req, res) => {
 router.post('/orders', allowPermission('MEDICAL.CREATE'), async (req, res) => {
   try {
     const b = req.body || {};
+    const requestedBranch = String(b.branchId || '').trim();
+    if (req.user.role !== 'ADMIN' && (!req.user.branchId || (requestedBranch && requestedBranch !== String(req.user.branchId)))) {
+      return res.status(403).json({ success: false, message: 'Chỉ được tạo chỉ dẫn hoặc y lệnh trong cơ sở được giao.' });
+    }
+    const branchId = req.user.role === 'ADMIN' ? requiredText(requestedBranch, 'Cơ sở') : String(req.user.branchId);
+    const branchName = req.user.role === 'ADMIN' ? String(b.branchName || '').trim() : String(req.user.branchName || '');
     const type = b.type === 'CARE_INSTRUCTION' ? 'CARE_INSTRUCTION' : 'MEDICATION';
     if (type === 'CARE_INSTRUCTION') {
       const morning = String(b.morning || '').trim();
@@ -70,7 +75,7 @@ router.post('/orders', allowPermission('MEDICAL.CREATE'), async (req, res) => {
         residentId: requiredText(b.residentId, 'Người cao tuổi'),
         residentName: requiredText(b.residentName, 'Tên người cao tuổi'),
         residentCode: String(b.residentCode || '').trim(),
-        branchId: requiredText(b.branchId, 'Cơ sở'), branchName: String(b.branchName || '').trim(),
+        branchId, branchName,
         areaId: String(b.areaId || '').trim() || null, areaName: String(b.areaName || '').trim(),
         roomName: String(b.roomName || '').trim(), bedName: String(b.bedName || '').trim(),
         morning, noon, evening,
@@ -89,7 +94,7 @@ router.post('/orders', allowPermission('MEDICAL.CREATE'), async (req, res) => {
     const order = {
       id: uuid(), type,
       residentId: requiredText(b.residentId, 'Người cao tuổi'), residentName: requiredText(b.residentName, 'Tên người cao tuổi'),
-      residentCode: String(b.residentCode || '').trim(), branchId: requiredText(b.branchId, 'Cơ sở'), branchName: String(b.branchName || '').trim(),
+      residentCode: String(b.residentCode || '').trim(), branchId, branchName,
       areaId: String(b.areaId || '').trim() || null, areaName: String(b.areaName || '').trim(), roomName: String(b.roomName || '').trim(), bedName: String(b.bedName || '').trim(),
       prescriptionRef: requiredText(b.prescriptionRef, 'Mã/số toa'), doctorName: requiredText(b.doctorName, 'Bác sĩ ra y lệnh'),
       orderedAt: validDate(b.orderedAt, 'Thời điểm bác sĩ ra y lệnh'), medicationName: requiredText(b.medicationName, 'Tên thuốc'), dose,
@@ -108,8 +113,8 @@ router.post('/orders/:id/stop', allowPermission('MEDICAL.STOP'), async (req, res
   if (!reason) return res.status(422).json({ success: false, message: 'Bắt buộc nhập lý do ngừng y lệnh.' });
   let order = null;
   await updateStore(store => {
-    order = (store.medicationOrders || []).find(x => x.id === req.params.id && !x.deleted);
-    if (order && visible(req.user, order)) {
+    order = (store.medicationOrders || []).find(x => x.id === req.params.id && !x.deleted && visible(req.user, x));
+    if (order) {
       order.status = 'STOPPED';
       order.stoppedReason = reason;
       order.stoppedAt = new Date().toISOString();
