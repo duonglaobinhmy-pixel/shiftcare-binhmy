@@ -11,13 +11,14 @@ console.log('[BOOT 1] app.js loaded');
 const app = express();
 
 const PORT = Number(process.env.PORT || 8788);
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || (process.env.NODE_ENV==='production'?'127.0.0.1':'0.0.0.0');
+if(process.env.NODE_ENV==='production' && (!process.env.DATABASE_URL || !process.env.JWT_SECRET || process.env.JWT_SECRET.length<32 || process.env.ALLOW_BCARE_MOCK!=='false')) throw new Error('Production requires DATABASE_URL, JWT_SECRET (32+ chars), ALLOW_BCARE_MOCK=false');
 
 app.disable('x-powered-by');
 
 app.use(
   cors({
-    origin: true,
+    origin: process.env.NODE_ENV==='production' ? (process.env.APP_ORIGIN || false) : true,
     credentials: true
   })
 );
@@ -123,7 +124,7 @@ async function loadApplicationModules() {
       await import('./routes/medication.routes.js');
     console.log('[IMPORT 5] medication.routes.js OK');
 
-    app.use('/api/medication', medicationRoutes);
+    if(process.env.ENABLE_LEGACY_MEDICATION==='true') app.use('/api/medication', medicationRoutes);
 
 
     console.log('[IMPORT 6] media.routes.js...');
@@ -180,6 +181,8 @@ async function loadApplicationModules() {
     app.use('/api/shift-history', shiftHistoryRoutes);
 
     // Register the authenticated catch-all router after the public DB health route.
+    const {default:careProfileRoutes}=await import('./routes/care-profile.routes.js');
+    app.use('/api/care-profile',careProfileRoutes);
     app.use('/api', coreRoutes);
 
 

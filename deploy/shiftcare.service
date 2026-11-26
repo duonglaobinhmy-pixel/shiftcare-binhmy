@@ -1,0 +1,18 @@
+[Unit]
+Description=ShifTCARE
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/shiftcare
+EnvironmentFile=/opt/shiftcare/server/.env
+ExecStart=/usr/bin/node /opt/shiftcare/server/src/app.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+[Install]
+WantedBy=multi-user.target

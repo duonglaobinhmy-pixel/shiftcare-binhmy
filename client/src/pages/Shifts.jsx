@@ -9,7 +9,7 @@ const todayVN = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_
 const freshForm = user => ({
   shiftDate: todayVN(), shiftType: 'MORNING',
   branchId: user.branchId || '', branchName: user.branchName || '',
-  areaId: user.areaId || '', areaName: '', roomId: '', assignedStaffIds: [], primaryRecorderId: '',
+  areaId: '', areaName: '', roomId: '', assignedStaffIds: [], primaryRecorderId: '',
 });
 
 export default function Shifts() {
@@ -71,7 +71,7 @@ export default function Shifts() {
     try {
       setErr('');
       const [locationResult, staffResult] = await Promise.all([
-        api.locations(branchId),
+        Promise.resolve({data:{areas:[],rooms:[]}}),
         api.shiftStaffOptions(branchId),
       ]);
       if(sequence!==branchSequence.current)return;
@@ -201,8 +201,6 @@ export default function Shifts() {
         <label>Ngày<input disabled={busy||!!editingShiftId} type="date" value={form.shiftDate} onChange={e => setForm({ ...form, shiftDate: e.target.value })} /></label>
         <label>Loại ca<select disabled={busy||!!editingShiftId} value={form.shiftType} onChange={e => setForm({ ...form, shiftType: e.target.value })}><option value="MORNING">Ca sáng</option><option value="NIGHT">Ca tối</option></select></label>
         <label>Cơ sở<select disabled={busy||!!editingShiftId||user.role!=='ADMIN'} value={form.branchId} onChange={e => changeBranch(e.target.value)}><option value="">Chọn cơ sở</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-        <label>Khu<select disabled={busy||!!editingShiftId || branchLoading} value={form.areaId || ''} onChange={e => setForm({ ...form, areaId: e.target.value, roomId: '' })}><option value="">Toàn cơ sở</option>{locations.areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-        <label>Phòng<select disabled={busy||!!editingShiftId || branchLoading} value={form.roomId || ''} onChange={e => setForm({ ...form, roomId: e.target.value })}><option value="">Tất cả phòng trong khu</option>{rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       </div>
 
       <fieldset className="staff-picker">

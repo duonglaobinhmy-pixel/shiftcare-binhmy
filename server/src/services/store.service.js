@@ -59,7 +59,7 @@ export async function saveUsers(users) {
         INSERT INTO users(id,username,password,employee_code,full_name,role,branch_id,branch_name_cache,area_id_cache,area_name_cache,active,deactivated_at,deactivated_by,legacy_extra,updated_at)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NOW())
         ON CONFLICT(id) DO UPDATE SET username=EXCLUDED.username,password=EXCLUDED.password,employee_code=EXCLUDED.employee_code,full_name=EXCLUDED.full_name,role=EXCLUDED.role,branch_id=EXCLUDED.branch_id,branch_name_cache=EXCLUDED.branch_name_cache,area_id_cache=EXCLUDED.area_id_cache,area_name_cache=EXCLUDED.area_name_cache,active=EXCLUDED.active,deactivated_at=EXCLUDED.deactivated_at,deactivated_by=EXCLUDED.deactivated_by,legacy_extra=EXCLUDED.legacy_extra,updated_at=NOW()
-      `,[u.id,u.username,u.password||'',u.employeeCode||null,u.fullName||u.username,u.role||'CARE_SHARED',u.branchId||null,u.branchName||'',u.areaId||null,u.areaName||'',u.active!==false,u.deactivatedAt||null,u.deactivatedBy||null,JSON.stringify(u)]);
+      `,[u.id,u.username,u.password||'',u.employeeCode||null,u.fullName||u.username,u.role||'CARE_SHARED',u.branchId||null,u.branchName||'',u.areaId||null,u.areaName||'',u.active!==false,u.deactivatedAt||null,u.deactivatedBy||null,JSON.stringify(strip(u,['password']))]);
       await db.query(`DELETE FROM user_permissions WHERE user_id=$1`,[u.id]);
       for(const permission of (u.permissions||[])) await db.query(`INSERT INTO user_permissions(user_id,permission) VALUES($1,$2) ON CONFLICT DO NOTHING`,[u.id,permission]);
     }

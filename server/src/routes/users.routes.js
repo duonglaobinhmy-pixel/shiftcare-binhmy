@@ -1,3 +1,4 @@
+import {hashPassword} from '../utils/password.js';
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import { authenticate, allowRoles, allowPermission } from '../middleware/auth.js';
@@ -194,7 +195,7 @@ router.post('/', allowPermission('USER.CREATE'), async (req, res) => {
     }
     const permissions = role === 'ADMIN' ? [] : sanitizePermissions(body.permissions, role);
     const user = {
-      id: uuid(), username, password, employeeCode: null, fullName, role,
+      id: uuid(), username, password:hashPassword(password), employeeCode: null, fullName, role,
       branchId, branchName, areaId: null, areaName: '', permissions, active: true,
     };
     users.push(user);
@@ -235,7 +236,7 @@ router.patch('/:id', allowPermission('USER.UPDATE'), async (req, res) => {
       employeeCode: null,
       permissions: role === 'ADMIN' ? [] : sanitizePermissions(body.permissions, role),
     };
-    if (password) next.password = password;
+    if (password) next.password = hashPassword(password);
     users[idx] = next;
     await saveUsers(users);
     await audit(req.user, 'USER_UPDATE', 'user', next.id, { username, role, branchId, permissions: next.permissions });

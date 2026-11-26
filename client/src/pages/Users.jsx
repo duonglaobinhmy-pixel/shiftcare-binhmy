@@ -8,7 +8,6 @@ const PERMISSION_GROUPS = [
   { module: 'SHIFT', label: 'Ca chăm sóc', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'CARE', label: 'Ghi nhận chăm sóc', actions: ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] },
   { module: 'HANDOVER', label: 'Bàn giao ca', actions: ['VIEW', 'SIGN', 'RECEIVE', 'OVERRIDE'] },
-  { module: 'MEDICAL', label: 'Y khoa / y lệnh', actions: ['VIEW', 'CREATE', 'UPDATE', 'STOP', 'ADMINISTER', 'DELETE'] },
   { module: 'REPORT', label: 'Báo cáo', actions: ['VIEW', 'EXPORT'] },
   { module: 'FOLLOWUP', label: 'Việc được giao', actions: ['VIEW', 'UPDATE'] },
   { module: 'CSKH', label: 'Chăm sóc khách hàng', actions: ['VIEW', 'CREATE', 'UPDATE'] },
@@ -30,7 +29,6 @@ const ROLE_CAPS = {
     'SHIFT.VIEW', 'SHIFT.CREATE', 'SHIFT.UPDATE',
     'CARE.VIEW', 'CARE.CREATE', 'CARE.UPDATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.CREATE', 'MEDICAL.UPDATE', 'MEDICAL.STOP', 'MEDICAL.ADMINISTER',
     'REPORT.VIEW', 'REPORT.EXPORT',
     'CSKH.VIEW', 'CSKH.CREATE', 'CSKH.UPDATE',
     'FOLLOWUP.VIEW', 'FOLLOWUP.UPDATE',
@@ -48,7 +46,6 @@ const ROLE_CAPS = {
     'SHIFT.VIEW',
     'CARE.VIEW', 'CARE.CREATE',
     'HANDOVER.VIEW', 'HANDOVER.SIGN', 'HANDOVER.RECEIVE',
-    'MEDICAL.VIEW', 'MEDICAL.ADMINISTER',
   ],
 };
 

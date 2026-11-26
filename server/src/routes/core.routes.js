@@ -270,7 +270,7 @@ async function createShift(user,body,{auto=false}={}){
   if(assignedStaff.length<2||assignedStaff.length!==requestedIds.length)throw new Error('Mỗi ca phải chọn tối thiểu 2 nhân sự đang hoạt động thuộc đúng cơ sở.');
   const primaryRecorder=assignedStaff.find(x=>x.id===String(body.primaryRecorderId||''));
   if(!primaryRecorder)throw new Error('Phải chọn một người ghi chính trong danh sách nhân sự trực ca.');
-  const base={shiftDate:normalizeDateOnly(body.shiftDate||todayVN()),shiftType,branchId,branchName,areaId:body.areaId||null,areaName:body.areaName||'',roomId:body.roomId||null,autoCreated:auto};
+  const base={shiftDate:normalizeDateOnly(body.shiftDate||todayVN()),shiftType,branchId,branchName,areaId:null,areaName:'',roomId:null,autoCreated:auto};
   const items=await fetchRosterForShift(base);
   let residentCount=items.length;
   let shift=await createShiftFast(user,base,{branchName,assignedStaff,primaryRecorder,rosterItems:items});
@@ -278,26 +278,18 @@ async function createShift(user,body,{auto=false}={}){
   await audit(user,auto?'SHIFT_AUTO_CREATE':'SHIFT_CREATE','shift',shift.id,{residentCount,areaId:shift.areaId,branchId:shift.branchId});
   return {...shift,residentCount};
 }
-router.get('/residents/:residentId/open-shift',async(req,res)=>{
-  const s=await getStore();const roster=s.shiftResidents.filter(x=>x.residentId===req.params.residentId&&visibleByScope(req.user,x));const ids=new Set(roster.map(x=>x.shiftId));const shifts=s.shifts.filter(x=>ids.has(x.id)&&x.status==='OPEN'&&visibleByScope(req.user,x)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));res.json({success:true,data:shifts[0]||null});
+// Existing roster is authoritative: never create a resident from client payload.
+router.get('/residents/:residentId/open-shift',allowPermission('CARE.VIEW','CARE.CREATE'),async(req,res)=>{
+  const s=await getStore();const ids=new Set(s.shiftResidents.filter(x=>x.residentId===req.params.residentId&&visibleByScope(req.user,x)).map(x=>x.shiftId));
+  const shifts=s.shifts.filter(x=>ids.has(x.id)&&careUnlocked(s,x)&&visibleByScope(req.user,x)).sort((a,b)=>String(b.shiftDate).localeCompare(String(a.shiftDate))||String(b.createdAt).localeCompare(String(a.createdAt)));
+  res.json({success:true,data:shifts[0]||null});
 });
-
-router.post('/residents/:residentId/ensure-open-shift',allowRoles('ADMIN','CAREGIVER'),async(req,res)=>{
-  const resident=req.body?.resident||{};
-  if(!resident.id||resident.id!==req.params.residentId)return res.status(400).json({success:false,message:'Thiếu thông tin NCT.'});
-  if(!visibleByScope(req.user,resident))return res.status(403).json({success:false,message:'NCT ngoài phạm vi được giao.'});
-  const s=await getStore();
-  const existingRoster=s.shiftResidents.filter(x=>x.residentId===resident.id);const ids=new Set(existingRoster.map(x=>x.shiftId));
-  let shift=s.shifts.filter(x=>ids.has(x.id)&&x.status==='OPEN'&&visibleByScope(req.user,x)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];
-  if(!shift){
-    shift=s.shifts.find(x=>x.status==='OPEN'&&x.shiftDate===todayVN()&&x.shiftType===currentShiftType()&&x.branchId===resident.branchId&&(!resident.areaId||x.areaId===resident.areaId));
-  }
-  if(!shift)return res.status(422).json({success:false,message:'Chưa có ca trực được giám đốc cơ sở hoặc quản trị viên tạo, phân công tối thiểu 2 nhân sự và chọn người ghi chính.'});
-  else{
-    const inRoster=(await getStore()).shiftResidents.some(x=>x.shiftId===shift.id&&x.residentId===resident.id);
-    if(!inRoster)await updateStore(store=>store.shiftResidents.push({id:uuid(),shiftId:shift.id,residentId:resident.id,code:resident.code||'',fullName:resident.fullName||'',branchId:resident.branchId,branchName:resident.branchName||shift.branchName,areaId:resident.areaId||null,areaName:resident.areaName||'',roomId:resident.roomId||null,roomName:resident.roomName||'',bedName:resident.bedName||'',image:resident.image||'',derivedStatus:'NO_RECORDED_CHANGE'}));
-  }
-  res.json({success:true,data:shift});
+router.post('/residents/:residentId/ensure-open-shift',allowPermission('CARE.CREATE'),async(req,res)=>{
+  const s=await getStore();const branchId=req.user.role==='ADMIN'?String(req.body?.resident?.branchId||''):String(req.user.branchId||'');
+  const ids=new Set(s.shiftResidents.filter(x=>x.residentId===req.params.residentId&&String(x.branchId)===branchId).map(x=>x.shiftId));
+  const shifts=s.shifts.filter(x=>ids.has(x.id)&&String(x.branchId)===branchId&&careUnlocked(s,x)&&x.shiftType===currentShiftType()&&x.shiftDate===(currentShiftType()==='NIGHT'&&Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',hourCycle:'h23'}).format(new Date()))<6?dateVN(new Date(Date.now()-86400000)):todayVN()));
+  if(shifts.length!==1)return res.status(422).json({success:false,message:shifts.length?'Có nhiều ca phù hợp; mở ca cụ thể để ghi nhận.':'Chưa có NCT trong ca hiện tại. Tạo ca hoặc cập nhật danh sách ca trước.'});
+  res.json({success:true,data:shifts[0]});
 });
 
 // Lightweight alert counter: no dashboard bundle, media signing or daily reports.
@@ -455,13 +447,13 @@ router.post('/change-logs',allowPermission('CARE.CREATE'),async(req,res)=>{
   const categoryCodes=Array.isArray(b.categoryCodes)?[...new Set(b.categoryCodes)]:[b.category];
   if(!categoryCodes.length||categoryCodes.some(code=>typeof code!=='string'||!careCategories.has(code)))return res.status(422).json({success:false,message:'Phải chọn ít nhất một nhóm ghi nhận hợp lệ.'});
   if(!eventCodes.length||eventCodes.some(code=>typeof code!=='string'||!allowedEvents.has(code))||!['IN_FACILITY','HOME_LEAVE','HOSPITAL'].includes(residentStatus))return res.status(422).json({success:false,message:'Trạng thái NCT hoặc nội dung ghi nhận không hợp lệ.'});
-  const inRoster=s.shiftResidents.some(x=>x.shiftId===shift.id&&x.residentId===b.residentId&&visibleByScope(req.user,x));if(!inRoster)return res.status(422).json({success:false,message:'NCT không thuộc danh sách ca này.'});
+  const inRoster=s.shiftResidents.find(x=>x.shiftId===shift.id&&x.residentId===b.residentId&&visibleByScope(req.user,x));if(!inRoster)return res.status(422).json({success:false,message:'NCT không thuộc danh sách ca này.'});
   if(!b.residentId||!b.category)return res.status(400).json({success:false,message:'Thiếu NCT hoặc nhóm ghi nhận'});
   const occurredAt=b.occurredAt?new Date(b.occurredAt):new Date();if(Number.isNaN(occurredAt.getTime())||occurredAt.getTime()>Date.now()+5*60*1000)return res.status(422).json({success:false,message:'Thời điểm ghi nhận không hợp lệ hoặc đang ở tương lai.'});
   let vitals,woundImages;try{vitals=normalizeVitals(b.vitals,b.insulin);woundImages=sanitizeWoundImages(b.woundImages)}catch(e){return res.status(422).json({success:false,message:e.message})}
   const performer=b.performerStaffId?(shift.assignedStaff||[]).find(x=>String(x.id)===String(b.performerStaffId)):null;
   if(b.performerStaffId&&!performer)return res.status(422).json({success:false,message:'Người thực hiện phải thuộc phân công của ca.'});
-  const row={id:uuid(),performerStaffId:performer?.id||null,performerStaffName:performer?.fullName||'',clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:b.residentName||'',category:categoryCodes[0],categoryCodes,eventType:eventCodes[0],eventCodes,residentStatus,priority:['LOW','MEDIUM','HIGH'].includes(b.priority)?b.priority:'LOW',occurredAt:occurredAt.toISOString(),content:String(b.content).trim(),intervention:b.intervention||'',notifiedTo:b.notifiedTo||'',vitals,woundImages,requiresHandover:!!b.requiresHandover,followUp:b.followUp||'',branchId:shift.branchId,branchName:shift.branchName||'',areaId:b.areaId||shift.areaId||null,areaName:b.areaName||'',roomName:b.roomName||'',bedName:b.bedName||'',image:b.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};row.attentionLevel=attentionLevel(row);row.attentionStatus=row.attentionLevel?'OPEN':null;
+  const row={id:uuid(),performerStaffId:performer?.id||null,performerStaffName:performer?.fullName||'',clientRequestId:String(b.clientRequestId||''),shiftId:b.shiftId,residentId:b.residentId,residentName:inRoster.fullName||'',category:categoryCodes[0],categoryCodes,eventType:eventCodes[0],eventCodes,residentStatus,priority:['LOW','MEDIUM','HIGH'].includes(b.priority)?b.priority:'LOW',occurredAt:occurredAt.toISOString(),content:String(b.content).trim(),intervention:b.intervention||'',notifiedTo:b.notifiedTo||'',vitals,woundImages,requiresHandover:!!b.requiresHandover,followUp:b.followUp||'',branchId:shift.branchId,branchName:shift.branchName||'',areaId:inRoster.areaId||null,areaName:inRoster.areaName||'',roomName:inRoster.roomName||'',bedName:inRoster.bedName||'',image:inRoster.image||'',createdBy:req.user.sub,createdByName:req.user.fullName,createdAt:new Date().toISOString(),deleted:false};row.attentionLevel=attentionLevel(row);row.attentionStatus=row.attentionLevel?'OPEN':null;
   await updateStore(store=>{const currentShift=store.shifts.find(x=>x.id===row.shiftId);if(!currentShift||!canAccessShift(req.user,currentShift)||!careUnlocked(store,currentShift)){const error=new Error('Ca đã khóa hoặc không còn quyền ghi.');error.status=409;throw error}if(row.performerStaffId&&!(currentShift.assignedStaff||[]).some(x=>String(x.id)===String(row.performerStaffId))){const error=new Error('Phân công người thực hiện đã thay đổi.');error.status=409;throw error}const existing=row.clientRequestId&&store.changeLogs.find(x=>x.clientRequestId===row.clientRequestId&&x.createdBy===row.createdBy);if(existing){Object.assign(row,existing);return}store.changeLogs.unshift(row);const sr=store.shiftResidents.find(x=>x.shiftId===row.shiftId&&x.residentId===row.residentId);if(sr)sr.derivedStatus=row.requiresHandover?'REQUIRES_HANDOVER':'RECORDED_CHANGE'});if(vitals?.bloodGlucose!=null&&getPool())await getPool().query(`UPDATE care_glucose_schedules SET next_due_date=($2::date+interval_days),updated_at=NOW() WHERE resident_id=$1 AND enabled`,[row.residentId,dateVN(row.occurredAt)]);await audit(req.user,'CHANGE_CREATE','change_log',row.id,{residentId:row.residentId,category:row.category,priority:row.priority});if(row.attentionLevel==='RED')void notifyUrgentCreated(row).then(result=>result.sent&&audit(req.user,'TELEGRAM_URGENT_SENT','change_log',row.id,{messageId:result.messageId})).catch(error=>console.error('Telegram urgent alert failed:',error.message));res.status(201).json({success:true,data:row});
 });
 router.patch('/change-logs/:id',allowPermission('CARE.UPDATE'),async(req,res)=>{

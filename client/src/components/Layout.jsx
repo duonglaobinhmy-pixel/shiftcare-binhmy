@@ -38,7 +38,7 @@ export default function Layout(){
       <button type="button" className="sidebar-edge-toggle" onClick={()=>setCollapsed(v=>!v)} title={collapsed?'Mở rộng trình đơn':'Thu gọn trình đơn'} aria-label={collapsed?'Mở rộng trình đơn':'Thu gọn trình đơn'}>{collapsed?'›':'‹'}</button>
       <div className="sidebar-brand">
         <img src="/logo-binhmy.jpg" alt="Bình Mỹ Care" className="sidebar-logo"/>
-        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v10.10</span></div>}
+        {!collapsed&&<div className="sidebar-brand-text"><strong>BÌNH MỸ CARE</strong><span>Chăm Sóc Thông Minh • v12</span></div>}
       </div>
       <nav className="sidebar-nav">
         {visibleMenus.map(item=><NavLink key={item.to} to={item.to} end={item.end} title={collapsed?item.label:undefined} onClick={closeMobileMenu} className={({isActive})=>isActive?'active':''}>

@@ -56,7 +56,7 @@ export async function loginBcare(force = false) {
   form.append('username', c.username);
   form.append('password', c.password);
 
-  const res = await fetch(`${c.base}${c.login}`, { method: 'POST', body: form });
+  const res = await fetch(`${c.base}${c.login}`, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
   const { data, text } = await parseResponse(res);
   tokenCache.loginPreview = typeof data === 'object' ? Object.keys(data || {}) : String(text).slice(0, 120);
   if (!res.ok) throw new Error(`BCARE login HTTP ${res.status}: ${String(text).slice(0, 300)}`);
@@ -90,7 +90,7 @@ export async function getResidents(payload = {}) {
     const res = await fetch(`${c.base}${c.elderly}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body), signal: AbortSignal.timeout(15000)
     });
     const parsed = await parseResponse(res);
     return { res, ...parsed };

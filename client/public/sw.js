@@ -1,4 +1,4 @@
-const CACHE = 'shiftcare-shell-v10-4-report-fix-20261006';
+const CACHE = 'shiftcare-shell-v12-20261126';
 const CORE = ['/', '/index.html', '/manifest.webmanifest', '/logo-binhmy.jpg', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', event => {
@@ -7,7 +7,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
+    caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('shiftcare-shell-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, allowRoles, scopedBranch } from '../middleware/auth.js';
+import { authenticate, allowRoles, scopedBranch, allowPermission } from '../middleware/auth.js';
 import { diagnostics, getResidents } from '../services/bcare.service.js';
 import { CARE_BRANCHES } from '../config/branches.js';
 
@@ -35,8 +35,10 @@ router.get('/locations', async (req,res) => {
   } catch(e){ res.status(502).json({success:false,message:e.message}); }
 });
 
-router.post('/residents', async (req, res) => {
+router.post('/residents', allowPermission('CARE.VIEW','CARE.CREATE'), async (req, res, next) => {
+ try {
   const payload = { ...req.body };
+  if(!req.user.branchId && req.user.role!=='ADMIN') return res.status(403).json({success:false,message:'Thiếu cơ sở'});
   payload.branchId = scopedBranch(req, payload.branchId);
   const query=String(payload.query||'').trim().toLocaleLowerCase('vi'),requestedArea=payload.areaId||'';
   let data;
@@ -48,6 +50,7 @@ router.post('/residents', async (req, res) => {
     data={pageIndex,pageSize,totalItem:all.length,totalPage:Math.max(1,Math.ceil(all.length/pageSize)),items:all.slice(start,start+pageSize),serverFiltered:true};
   }else data=await getResidents(payload);
   res.json({ success: true, data });
+ } catch(error){next(error)}
 });
 
 export default router;
